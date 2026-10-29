@@ -466,20 +466,32 @@ final class AchievementsManager {
         }
 
         let width: CGFloat = 460
-        let height: CGFloat = 102
+        let height: CGFloat = 104
         let frame = screen.visibleFrame
-        let targetOrigin = CGPoint(x: frame.midX - width / 2, y: frame.maxY - height - 16)
-        let startOrigin = CGPoint(x: targetOrigin.x, y: frame.maxY + 26)
+        // Place 48pt below the top of visibleFrame (well clear of the Menu Bar & MacBook Notch)
+        let targetFrame = CGRect(
+            x: frame.midX - width / 2,
+            y: frame.maxY - height - 48,
+            width: width,
+            height: height
+        )
+        let startFrame = CGRect(
+            x: targetFrame.origin.x,
+            y: frame.maxY - height - 12,
+            width: width,
+            height: height
+        )
 
         let window = NSPanel(
-            contentRect: CGRect(origin: startOrigin, size: CGSize(width: width, height: height)),
+            contentRect: targetFrame,
             styleMask: [.borderless, .nonactivatingPanel],
             backing: .buffered,
             defer: false
         )
         window.isOpaque = false
         window.backgroundColor = .clear
-        window.level = .statusBar
+        window.level = .screenSaver
+        window.canBecomeVisibleWithoutLogin = true
         window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .ignoresCycle]
         window.ignoresMouseEvents = true
         window.hasShadow = true
@@ -560,24 +572,25 @@ final class AchievementsManager {
         card.addSubview(barFill)
 
         window.contentView = card
+        window.setFrame(startFrame, display: true)
         window.alphaValue = 0
         window.orderFrontRegardless()
         self.toastWindow = window
 
         let finalBarWidth = max(12, barTrackWidth * min(1.0, max(0.05, item.progressFraction)))
         NSAnimationContext.runAnimationGroup { ctx in
-            ctx.duration = 0.42
+            ctx.duration = 0.38
             ctx.timingFunction = CAMediaTimingFunction(name: .easeOut)
-            window.animator().setFrameOrigin(targetOrigin)
+            window.animator().setFrame(targetFrame, display: true)
             window.animator().alphaValue = 1
             barFill.animator().frame = CGRect(x: 16, y: 10, width: finalBarWidth, height: 6)
         }
 
         DispatchQueue.main.asyncAfter(deadline: .now() + 3.8) { [weak self] in
             NSAnimationContext.runAnimationGroup({ ctx in
-                ctx.duration = 0.32
+                ctx.duration = 0.30
                 ctx.timingFunction = CAMediaTimingFunction(name: .easeIn)
-                window.animator().setFrameOrigin(startOrigin)
+                window.animator().setFrame(startFrame, display: true)
                 window.animator().alphaValue = 0
             }, completionHandler: {
                 window.close()
@@ -593,30 +606,36 @@ final class AchievementsManager {
     func showAchievementsWindow() {
         if let existing = panelWindow {
             rebuildPanelContent()
+            if let screen = NSScreen.main ?? NSScreen.screens.first {
+                let vf = screen.visibleFrame
+                let w = existing.frame.width
+                let h = existing.frame.height
+                let x = vf.midX - w / 2
+                let y = min(max(vf.minY + 20, vf.midY - h / 2), vf.maxY - h - 24)
+                existing.setFrameOrigin(CGPoint(x: x, y: y))
+            }
             existing.makeKeyAndOrderFront(nil)
             NSApp.activate(ignoringOtherApps: true)
             return
         }
 
         let width: CGFloat = 780
-        let height: CGFloat = 650
-        let screenFrame = (NSScreen.main ?? NSScreen.screens.first)?.visibleFrame ?? CGRect(x: 0, y: 0, width: 1280, height: 800)
+        let height: CGFloat = 630
+        let vf = (NSScreen.main ?? NSScreen.screens.first)?.visibleFrame ?? CGRect(x: 0, y: 0, width: 1280, height: 800)
         let rect = CGRect(
-            x: screenFrame.midX - width / 2,
-            y: screenFrame.midY - height / 2,
+            x: vf.midX - width / 2,
+            y: min(max(vf.minY + 20, vf.midY - height / 2), vf.maxY - height - 36),
             width: width,
             height: height
         )
 
         let window = NSWindow(
             contentRect: rect,
-            styleMask: [.titled, .closable, .fullSizeContentView],
+            styleMask: [.titled, .closable],
             backing: .buffered,
             defer: false
         )
-        window.title = "Spookhush Trophies & 24k Golden Leaves"
-        window.titlebarAppearsTransparent = true
-        window.titleVisibility = .hidden
+        window.title = "🎃 Spookhush — Trophies & 24k Golden Leaves"
         window.isMovableByWindowBackground = true
         window.backgroundColor = NSColor(srgbRed: 0.08, green: 0.04, blue: 0.11, alpha: 1.0)
         window.isReleasedWhenClosed = false
@@ -631,20 +650,20 @@ final class AchievementsManager {
     private func rebuildPanelContent() {
         guard let window = panelWindow else { return }
         let width: CGFloat = 780
-        let height: CGFloat = 650
+        let height: CGFloat = 630
         let root = NSView(frame: CGRect(x: 0, y: 0, width: width, height: height))
         root.wantsLayer = true
         root.layer?.backgroundColor = NSColor(srgbRed: 0.08, green: 0.04, blue: 0.11, alpha: 1.0).cgColor
 
         // Header
         let headerTitle = NSTextField(labelWithString: "🎃 SPOOKHUSH TROPHIES (\(unlockedCount)/\(totalCount))")
-        headerTitle.font = .systemFont(ofSize: 20, weight: .heavy)
+        headerTitle.font = .systemFont(ofSize: 19, weight: .heavy)
         headerTitle.textColor = NSColor(srgbRed: 1.0, green: 0.66, blue: 0.18, alpha: 1.0)
-        headerTitle.frame = CGRect(x: 24, y: height - 50, width: 320, height: 28)
+        headerTitle.frame = CGRect(x: 20, y: height - 42, width: 320, height: 26)
         root.addSubview(headerTitle)
 
         // Test / Preview Trophy Popup Button
-        let demoBtn = NSButton(frame: CGRect(x: 342, y: height - 51, width: 108, height: 28))
+        let demoBtn = NSButton(frame: CGRect(x: 342, y: height - 43, width: 108, height: 28))
         demoBtn.bezelStyle = .rounded
         demoBtn.title = "🔔 Test Popup"
         demoBtn.font = .systemFont(ofSize: 11, weight: .bold)
@@ -653,7 +672,7 @@ final class AchievementsManager {
         root.addSubview(demoBtn)
 
         // Stats Summary Pill
-        let goldPill = NSView(frame: CGRect(x: width - 318, y: height - 54, width: 298, height: 34))
+        let goldPill = NSView(frame: CGRect(x: width - 318, y: height - 46, width: 298, height: 34))
         goldPill.wantsLayer = true
         goldPill.layer?.backgroundColor = NSColor(srgbRed: 0.22, green: 0.14, blue: 0.05, alpha: 1.0).cgColor
         goldPill.layer?.cornerRadius = 17
@@ -672,8 +691,8 @@ final class AchievementsManager {
         // 2-Column Grid of 16 Trophies (8 rows × 2 columns)
         let all = AchievementID.allCases
         let colWidth: CGFloat = (width - 56) / 2
-        let rowHeight: CGFloat = 58
-        let startY: CGFloat = height - 122
+        let rowHeight: CGFloat = 56
+        let startY: CGFloat = height - 112
 
         for (index, id) in all.enumerated() {
             let col = index % 2

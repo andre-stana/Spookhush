@@ -4,11 +4,16 @@ final class OverlayWindow: NSWindow {
     private static let desktopLevel = NSWindow.Level(rawValue: Int(CGWindowLevelForKey(.desktopWindow)) + 1)
     /// Just under the Dock, so its icons stay in front as they grow under the pointer.
     static let belowDockLevel = NSWindow.Level(rawValue: Int(CGWindowLevelForKey(.dockWindow)) - 1)
+    private static let lockScreenLevel = NSWindow.Level(rawValue: Int(CGShieldingWindowLevel()) + 1)
 
     private let frontLevel: NSWindow.Level
 
     var behindWindows = false {
-        didSet { level = behindWindows ? Self.desktopLevel : frontLevel }
+        didSet { updateLevel() }
+    }
+
+    var onLockedScreen = false {
+        didSet { updateLevel() }
     }
 
     var showsInScreenshots = false {
@@ -23,11 +28,21 @@ final class OverlayWindow: NSWindow {
         hasShadow = false
         ignoresMouseEvents = true
         isReleasedWhenClosed = false
+        canBecomeVisibleWithoutLogin = true
         animationBehavior = .none
-        collectionBehavior = [.canJoinAllSpaces, .stationary, .ignoresCycle]
+        collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary, .ignoresCycle]
         self.level = level
         sharingType = .none
         setFrame(screen.frame, display: false)
+    }
+
+    private func updateLevel() {
+        if onLockedScreen {
+            level = Self.lockScreenLevel
+            orderFrontRegardless()
+        } else {
+            level = behindWindows ? Self.desktopLevel : frontLevel
+        }
     }
 
     override var canBecomeKey: Bool { false }
