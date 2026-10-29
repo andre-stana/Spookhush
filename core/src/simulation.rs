@@ -343,11 +343,11 @@ impl SnowSimulation {
     }
 
     pub fn has_snow(&self) -> bool {
-        true
+        self.layers.iter().any(|layer| layer.top > 0.5)
     }
 
     pub fn sprite_count(&self) -> usize {
-        self.air.flakes.len() + self.air.grains.len() + self.air.motes.len() + 2
+        self.air.flakes.len() + self.air.grains.len() + self.air.motes.len()
     }
 
     /// Floats the renderer needs per frame: each layer's surface and bed.
@@ -447,32 +447,6 @@ impl SnowSimulation {
         for (slot, sprite) in buffer.iter_mut().zip(flakes.chain(grains).chain(motes)) {
             *slot = sprite;
             count += 1;
-        }
-        // Giant Corner Jack-o'-lanterns
-        let cur = self.air.cursor.unwrap_or(V2::new(self.width * 0.5, self.height * 0.5));
-        let ground = &self.layers[0];
-        let left_x = 58.0_f32;
-        let right_x = (self.width - 58.0).max(58.0);
-        let left_y = 32.0 + (ground.surface(ground.clamped_index(left_x)) * 0.32).min(14.0);
-        let right_y = 32.0 + (ground.surface(ground.clamped_index(right_x)) * 0.32).min(14.0);
-        let left_pos = V2::new(left_x, left_y);
-        let right_pos = V2::new(right_x, right_y);
-        for (pos, lump) in [(left_pos, 3.0_f32), (right_pos, 4.0_f32)] {
-            if count < buffer.len() {
-                let d = cur - pos;
-                let len = d.length().max(1.0);
-                buffer[count] = Sprite {
-                    position: pos,
-                    velocity: d / len,
-                    size: 62.0,
-                    alpha: 0.98,
-                    soft: 0.1,
-                    tint_amount: 0.0,
-                    tint: [1.0, 0.54, 0.14],
-                    lump,
-                };
-                count += 1;
-            }
         }
         count
     }
