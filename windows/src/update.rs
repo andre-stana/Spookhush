@@ -11,8 +11,8 @@ use windows::core::{PCWSTR, w};
 
 use snowhush_core::version::{field, newer};
 
-const REPOSITORY: &str = "mbezruchko/Snowhush";
-const INSTALLER: &str = "Snowhush-Setup.exe";
+const REPOSITORY: &str = "andre-stana/Spookhush";
+const INSTALLER: &str = "Spookhush-Setup.exe";
 
 /// A release newer than this build that carries an installer for Windows.
 pub struct Release {

@@ -20,15 +20,15 @@ use windows::Win32::UI::WindowsAndMessaging::{
 };
 use windows::core::{GUID, Interface, PCWSTR, w};
 
-const UNINSTALL: PCWSTR = w!("Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\Snowhush");
+const UNINSTALL: PCWSTR = w!("Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\Spookhush");
 const RUN: PCWSTR = w!("Software\\Microsoft\\Windows\\CurrentVersion\\Run");
-const SETTINGS: PCWSTR = w!("Software\\Snowhush");
-const NAME: PCWSTR = w!("Snowhush");
-/// The app's hidden window, which a running Snowhush always has.
-const CONTROLLER: PCWSTR = w!("SnowhushController");
+const SETTINGS: PCWSTR = w!("Software\\Spookhush");
+const NAME: PCWSTR = w!("Spookhush");
+/// The app's hidden window, which a running Spookhush always has.
+const CONTROLLER: PCWSTR = w!("SpookhushController");
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
-/// The version the uninstall entry records, if Snowhush is installed.
+/// The version the uninstall entry records, if Spookhush is installed.
 pub fn installed_version() -> Option<String> {
     read_string(UNINSTALL, w!("DisplayVersion"))
 }
@@ -36,10 +36,10 @@ pub fn installed_version() -> Option<String> {
 /// Puts the app in place and registers it, replacing a running or older copy. Returns where the app went.
 pub fn install(app: &[u8], version: &str) -> Result<PathBuf, String> {
     close_running();
-    let folder = known_folder(&FOLDERID_UserProgramFiles).ok_or("the programs folder isn't available")?.join("Snowhush");
+    let folder = known_folder(&FOLDERID_UserProgramFiles).ok_or("the programs folder isn't available")?.join("Spookhush");
     std::fs::create_dir_all(&folder).map_err(|error| format!("couldn't create {}: {error}", folder.display()))?;
-    let exe = folder.join("Snowhush.exe");
-    let staged = folder.join("Snowhush.exe.new");
+    let exe = folder.join("Spookhush.exe");
+    let staged = folder.join("Spookhush.exe.new");
     std::fs::write(&staged, app).map_err(|error| format!("couldn't write {}: {error}", staged.display()))?;
     // A copy that was just asked to quit may hold on to its file for a moment longer.
     let started = Instant::now();
@@ -52,15 +52,15 @@ pub fn install(app: &[u8], version: &str) -> Result<PathBuf, String> {
     }
 
     if let Some(programs) = known_folder(&FOLDERID_Programs) {
-        let _ = shortcut(&exe, &programs.join("Snowhush.lnk"));
+        let _ = shortcut(&exe, &programs.join("Spookhush.lnk"));
     }
     let quoted = format!("\"{}\"", exe.display());
-    write_string(UNINSTALL, w!("DisplayName"), "Snowhush");
+    write_string(UNINSTALL, w!("DisplayName"), "Spookhush");
     write_string(UNINSTALL, w!("DisplayVersion"), version);
-    write_string(UNINSTALL, w!("Publisher"), "Mykhailo Bezruchko");
+    write_string(UNINSTALL, w!("Publisher"), "Andre Stana (based on Snowhush by Mykhailo Bezruchko)");
     write_string(UNINSTALL, w!("DisplayIcon"), &exe.display().to_string());
     write_string(UNINSTALL, w!("InstallLocation"), &folder.display().to_string());
-    write_string(UNINSTALL, w!("URLInfoAbout"), "https://snowhush.pages.dev");
+    write_string(UNINSTALL, w!("URLInfoAbout"), "https://github.com/andre-stana/Spookhush");
     write_string(UNINSTALL, w!("UninstallString"), &format!("{quoted} --uninstall"));
     write_string(UNINSTALL, w!("QuietUninstallString"), &format!("{quoted} --uninstall --silent"));
     write_number(UNINSTALL, w!("NoModify"), 1);
@@ -73,14 +73,14 @@ pub fn install(app: &[u8], version: &str) -> Result<PathBuf, String> {
     Ok(exe)
 }
 
-/// Removes everything Snowhush put on the computer. The app's own folder goes a moment after this process exits.
+/// Removes everything Spookhush put on the computer. The app's own folder goes a moment after this process exits.
 pub fn uninstall() {
     close_running();
     if let Some(programs) = known_folder(&FOLDERID_Programs) {
-        let _ = std::fs::remove_file(programs.join("Snowhush.lnk"));
+        let _ = std::fs::remove_file(programs.join("Spookhush.lnk"));
     }
     if let Some(data) = known_folder(&FOLDERID_LocalAppData) {
-        let _ = std::fs::remove_dir_all(data.join("Snowhush"));
+        let _ = std::fs::remove_dir_all(data.join("Spookhush"));
     }
     let folder = read_string(UNINSTALL, w!("InstallLocation"));
     unsafe {
@@ -88,7 +88,7 @@ pub fn uninstall() {
         let _ = RegDeleteTreeW(HKEY_CURRENT_USER, SETTINGS);
         let _ = RegDeleteKeyValueW(HKEY_CURRENT_USER, RUN, NAME);
     }
-    if let Some(folder) = folder.filter(|folder| folder.ends_with("Snowhush")) {
+    if let Some(folder) = folder.filter(|folder| folder.ends_with("Spookhush")) {
         let _ = std::process::Command::new("cmd.exe")
             .raw_arg(format!("/c ping 127.0.0.1 -n 3 >nul & rmdir /s /q \"{folder}\""))
             .creation_flags(CREATE_NO_WINDOW)

@@ -35,10 +35,10 @@ use windows_numerics::Vector2;
 
 /// Room around the card for its shadow.
 pub const MARGIN: f32 = 36.0;
-const BACKGROUND: [f32; 3] = [0.105, 0.088, 0.072];
-const INK: [f32; 3] = [0.93, 0.9, 0.85];
-const MUTED: [f32; 3] = [0.78, 0.75, 0.7];
-const LABEL: [f32; 3] = [0.09, 0.075, 0.06];
+const BACKGROUND: [f32; 3] = [0.095, 0.055, 0.125];
+const INK: [f32; 3] = [0.98, 0.84, 0.65];
+const MUTED: [f32; 3] = [0.85, 0.75, 0.68];
+const LABEL: [f32; 3] = [0.09, 0.05, 0.11];
 const BUTTON: (f32, f32) = (190.0, 44.0);
 const ICON: &[u8] = include_bytes!("../assets/icon-256.png");
 

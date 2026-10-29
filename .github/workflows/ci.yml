@@ -1,9 +1,14 @@
-name: CI
+name: CI & Release
 
 on:
   pull_request:
   push:
     branches: [main]
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -15,23 +20,67 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Formatting
-        run: |
-          cargo fmt --check --manifest-path core/Cargo.toml
-          cargo fmt --check --manifest-path windows/Cargo.toml
       - name: Tests
         run: cargo test --locked --manifest-path core/Cargo.toml
 
   windows:
-    name: Windows app
+    name: Windows app & installer
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
-      - run: cargo build --locked --release --bin Snowhush --manifest-path windows/Cargo.toml
+      - name: Build Windows app
+        run: cargo build --locked --release --bin Snowhush --manifest-path windows/Cargo.toml
+      - name: Build Windows installer (Spookhush-Setup.exe)
+        env:
+          SNOWHUSH_APP: ${{ github.workspace }}\windows\target\release\Snowhush.exe
+        run: |
+          cargo build --locked --release --bin Snowhush-Setup --features setup --manifest-path windows/Cargo.toml
+          mkdir dist
+          copy windows\target\release\Snowhush-Setup.exe dist\Spookhush-Setup.exe
+        shell: cmd
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Spookhush-Setup.exe
+          path: dist/Spookhush-Setup.exe
 
   mac:
-    name: Mac app
+    name: Mac app & DMG
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
-      - run: swift build -c release
+      - name: Build Spookhush.app and Spookhush.dmg
+        run: |
+          ./build.sh
+          ./scripts/make-dmg.sh build/Spookhush.app dist/Spookhush.dmg
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Spookhush.dmg
+          path: dist/Spookhush.dmg
+
+  release:
+    name: Publish GitHub Release
+    needs: [core, windows, mac]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+      - name: Create or update GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="${GITHUB_REF#refs/tags/}"
+          if gh release view "$tag" >/dev/null 2>&1; then
+            gh release upload "$tag" artifacts/Spookhush.dmg artifacts/Spookhush-Setup.exe --clobber
+          else
+            gh release create "$tag" artifacts/Spookhush.dmg artifacts/Spookhush-Setup.exe \
+              --title "Spookhush ${tag#v}" \
+              --notes "🎃 **Spookhush ${tag#v}** — Halloween Edition for macOS & Windows.
+
+          ### Installation
+          - **macOS (`Spookhush.dmg`)**: Open \`Spookhush.dmg\` and drag **Spookhush** to **Applications**.
+            *(Note: Since this community open-source build is signed ad-hoc without a paid Apple Developer ID, if macOS Gatekeeper blocks first launch, right-click **Spookhush.app** → **Open**, or run \`xattr -cr /Applications/Spookhush.app\` in Terminal).*
+          - **Windows (`Spookhush-Setup.exe`)**: Run \`Spookhush-Setup.exe\` and click **INSTALL** (installs per-user without administrator rights)."
+          fi

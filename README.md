@@ -7,9 +7,11 @@
 <p align="center">It's haunted on your desktop.</p>
 
 <p align="center">
-  <a href="https://github.com/andre-stana/Spookhush"><b>GitHub Repository</b></a>
+  <a href="https://github.com/andre-stana/Spookhush/releases/latest/download/Spookhush.dmg"><b>Download for macOS (.dmg)</b></a>
   &nbsp;·&nbsp;
-  <a href="https://github.com/mbezruchko/Snowhush">Based on Snowhush</a>
+  <a href="https://github.com/andre-stana/Spookhush/releases/latest/download/Spookhush-Setup.exe"><b>Download for Windows (.exe)</b></a>
+  &nbsp;·&nbsp;
+  <a href="https://github.com/andre-stana/Spookhush">GitHub</a>
   <br>
   <sub>macOS 14 or later · Windows 10 or 11 · WebGL2 interactive demo · free and open source</sub>
 </p>

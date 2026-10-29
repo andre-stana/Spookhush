@@ -26,7 +26,7 @@ use crate::update::{self, Release};
 use crate::welcome::{self, Handlers};
 use snowhush_core::simulation::Snowfall;
 
-const CLASS: PCWSTR = w!("SnowhushController");
+const CLASS: PCWSTR = w!("SpookhushController");
 const WM_TRAY: u32 = WM_APP + 1;
 const NIN_KEYSELECT: u32 = NIN_SELECT | 1;
 const ID_SNOWFALL: u32 = 100;
@@ -225,14 +225,14 @@ fn show_menu(window: HWND, x: i32, y: i32) {
         let current = Snowfall::ALL.iter().position(|&s| s == settings.snowfall).unwrap_or(0) as u32;
         let _ = CheckMenuRadioItem(snowfall, ID_SNOWFALL, ID_SNOWFALL + 4, ID_SNOWFALL + current, MF_BYCOMMAND.0);
         let checked = |on: bool| if on { MF_CHECKED } else { MF_UNCHECKED };
-        let _ = AppendMenuW(menu, MF_POPUP, snowfall.0 as usize, w!("Snowfall"));
+        let _ = AppendMenuW(menu, MF_POPUP, snowfall.0 as usize, w!("Autumn Fall"));
         let _ = AppendMenuW(menu, MF_SEPARATOR, 0, PCWSTR::null());
         let _ = AppendMenuW(menu, MF_STRING | checked(settings.accumulate), ID_ACCUMULATE as usize, w!("Accumulate"));
         let melt = MF_STRING | checked(settings.melt) | if settings.accumulate { MF_ENABLED } else { MF_GRAYED };
-        let _ = AppendMenuW(menu, melt, ID_MELT as usize, w!("Melt Snow"));
+        let _ = AppendMenuW(menu, melt, ID_MELT as usize, w!("Fade Leaves"));
         let windows = MF_STRING | checked(settings.snow_on_windows) | if settings.behind_windows { MF_GRAYED } else { MF_ENABLED };
-        let _ = AppendMenuW(menu, windows, ID_WINDOWS as usize, w!("Snow on Windows"));
-        let _ = AppendMenuW(menu, MF_STRING, ID_CLEAR as usize, w!("Clear Snow"));
+        let _ = AppendMenuW(menu, windows, ID_WINDOWS as usize, w!("Leaves on Windows"));
+        let _ = AppendMenuW(menu, MF_STRING, ID_CLEAR as usize, w!("Clear Leaves"));
         let _ = AppendMenuW(menu, MF_SEPARATOR, 0, PCWSTR::null());
         let _ = AppendMenuW(menu, MF_STRING | checked(settings.behind_windows), ID_BEHIND as usize, w!("Behind Windows"));
         let _ = AppendMenuW(menu, MF_STRING | checked(settings.show_in_screenshots), ID_SCREENSHOTS as usize, w!("Show in Screenshots"));
@@ -404,7 +404,7 @@ fn add_tray_icon(window: HWND, icon: HICON) {
         hIcon: icon,
         ..Default::default()
     };
-    for (slot, unit) in data.szTip.iter_mut().zip("Snowhush".encode_utf16()) {
+    for (slot, unit) in data.szTip.iter_mut().zip("Spookhush".encode_utf16()) {
         *slot = unit;
     }
     unsafe {

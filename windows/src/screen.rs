@@ -291,7 +291,8 @@ impl Screen {
         if let Some(tracker) = windows {
             self.follow(tracker, clock, now);
         }
-        let changed = self.simulation.step(dt, self.cursor());
+        let cursor = self.cursor();
+        let changed = self.simulation.step(dt, cursor);
 
         let fastest = if budget == PowerBudget::Full { self.interactive_rate } else { self.interactive_rate.min(60) };
         // 24 only where it divides the display's rate evenly; elsewhere it would judder.
@@ -307,7 +308,7 @@ impl Screen {
         if !(changed || (self.simulation.has_snow() && self.idle_frames % 2 == 0)) {
             return Ok(false);
         }
-        self.surface.draw(gpu, &self.simulation, Ambient { light, shadow_tint: self.shadow_tint }, time)?;
+        self.surface.draw(gpu, &self.simulation, Ambient { light, shadow_tint: self.shadow_tint, cursor: [cursor.x, cursor.y] }, time)?;
         Ok(true)
     }
 

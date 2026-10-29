@@ -14,11 +14,11 @@ use snowhush_core::geometry::V2;
 use crate::log;
 use crate::snow::Piece;
 
-const CLASS: PCWSTR = w!("SnowhushWelcome");
+const CLASS: PCWSTR = w!("SpookhushWelcome");
 const WIDTH: f32 = 440.0;
 const HEIGHT: f32 = 430.0;
-const TITLE: &str = "IT'S SNOWING\nON YOUR DESKTOP.";
-const BODY: &str = "Snowhush lives in the system tray. Click its icon to change the snowfall, let the drift melt, or keep the snow off your windows. Sweep it aside with your cursor.";
+const TITLE: &str = "IT'S HAUNTED\nON YOUR DESKTOP.";
+const BODY: &str = "Spookhush lives in the system tray. Click its pumpkin icon to change the autumn fall, let the leaves fade, or keep them off your windows. Sweep them aside with your lantern.";
 /// Spacing of the pieces that fly off.
 const CELL: f32 = 6.0;
 /// Spacing of the crumbling front: fine enough that its edge reads as a line, not as squares.
@@ -122,7 +122,7 @@ fn open() -> Result<()> {
 }
 
 fn content(pressed: bool) -> Content<'static> {
-    Content { icon: 112.0, title: TITLE, title_size: 34.0, body: BODY, button: "GET STARTED", pressed, closable: false }
+    Content { icon: 112.0, title: TITLE, title_size: 34.0, body: BODY, button: "ENTER THE NIGHT", pressed, closable: false }
 }
 
 unsafe extern "system" fn procedure(window: HWND, message: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {

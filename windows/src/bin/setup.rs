@@ -76,7 +76,7 @@ fn open() -> Result<()> {
         let window = CreateWindowExW(
             WS_EX_LAYERED | WS_EX_APPWINDOW,
             CLASS,
-            w!("Snowhush Setup"),
+            w!("Spookhush Setup"),
             WS_POPUP | WS_SYSMENU | WS_MINIMIZEBOX,
             origin.x,
             origin.y,
@@ -103,14 +103,14 @@ fn paint(card: &Card, stage: &Stage, installed: Option<&str>, pressed: bool) -> 
             let (body, button) = match installed {
                 None => (format!("Version {VERSION}. Installs just for you, without administrator rights."), "INSTALL"),
                 Some(old) if snowhush_core::version::newer(VERSION, old) => {
-                    (format!("Updates Snowhush {old} to {VERSION}. Your settings stay as they are."), "UPDATE")
+                    (format!("Updates Spookhush {old} to {VERSION}. Your settings stay as they are."), "UPDATE")
                 }
-                Some(old) => (format!("Snowhush {old} is already here. Installing {VERSION} again repairs it."), "REINSTALL"),
+                Some(old) => (format!("Spookhush {old} is already here. Installing {VERSION} again repairs it."), "REINSTALL"),
             };
-            ("SNOWHUSH", body, if installing { "INSTALLING…" } else { button })
+            ("SPOOKHUSH", body, if installing { "INSTALLING…" } else { button })
         }
-        Stage::Done(_) => ("LET IT SETTLE.", "Snowhush is installed. You'll find it in the Start menu.".to_string(), "OPEN SNOWHUSH"),
-        Stage::Failed(error) => ("SNOWHUSH", format!("Couldn't install: {error}."), "TRY AGAIN"),
+        Stage::Done(_) => ("ENTER THE NIGHT.", "Spookhush is installed. You'll find it in the Start menu.".to_string(), "OPEN SPOOKHUSH"),
+        Stage::Failed(error) => ("SPOOKHUSH", format!("Couldn't install: {error}."), "TRY AGAIN"),
     };
     card.paint(&Content { icon: 96.0, title, title_size: 40.0, body: &body, button, pressed: pressed || installing, closable: !installing })
 }

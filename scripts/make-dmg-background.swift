@@ -22,11 +22,11 @@ ctx.scaleBy(x: scale, y: scale)
 ctx.translateBy(x: 0, y: size.height)
 ctx.scaleBy(x: 1, y: -1)
 
-let night = CGGradient(colorsSpace: space, colors: [color(0x221b15), color(0x0f0d0b)] as CFArray, locations: [0, 1])!
+let night = CGGradient(colorsSpace: space, colors: [color(0x1e0e26), color(0x0d0612)] as CFArray, locations: [0, 1])!
 ctx.drawLinearGradient(night, start: .zero, end: CGPoint(x: 0, y: size.height), options: [])
 
 let lamp = CGPoint(x: appCenter.x, y: 34)
-let halo = CGGradient(colorsSpace: space, colors: [color(0xffd696, 0.34), color(0xffd696, 0.1), color(0xffd696, 0)] as CFArray,
+let halo = CGGradient(colorsSpace: space, colors: [color(0xff9d36, 0.38), color(0xff6b1a, 0.12), color(0xff6b1a, 0)] as CFArray,
                       locations: [0, 0.4, 1])!
 ctx.drawRadialGradient(halo, startCenter: lamp, startRadius: 0, endCenter: lamp, endRadius: 230, options: [])
 for layer in 0..<30 {
@@ -40,11 +40,11 @@ for layer in 0..<30 {
     ctx.saveGState()
     ctx.addPath(beam)
     ctx.clip()
-    let light = CGGradient(colorsSpace: space, colors: [color(0xffdca5, 0.02), color(0xffdca5, 0.002)] as CFArray, locations: [0, 1])!
+    let light = CGGradient(colorsSpace: space, colors: [color(0xffaa42, 0.024), color(0xff7718, 0.002)] as CFArray, locations: [0, 1])!
     ctx.drawLinearGradient(light, start: CGPoint(x: 0, y: lamp.y), end: CGPoint(x: 0, y: size.height), options: [])
     ctx.restoreGState()
 }
-ctx.setFillColor(color(0x2e2924))
+ctx.setFillColor(color(0x281a24))
 ctx.fill(CGRect(x: 0, y: lamp.y - 15, width: lamp.x, height: 2))
 let head = CGMutablePath()
 head.move(to: CGPoint(x: lamp.x - 15, y: lamp.y))
@@ -52,22 +52,22 @@ head.addLine(to: CGPoint(x: lamp.x + 15, y: lamp.y))
 head.addLine(to: CGPoint(x: lamp.x + 7, y: lamp.y - 12))
 head.addLine(to: CGPoint(x: lamp.x - 7, y: lamp.y - 12))
 head.closeSubpath()
-ctx.setFillColor(color(0x2c2722))
+ctx.setFillColor(color(0x281a24))
 ctx.addPath(head)
 ctx.fillPath()
-ctx.setFillColor(color(0xfff6e4))
+ctx.setFillColor(color(0xffb84d))
 ctx.fillEllipse(in: CGRect(x: lamp.x - 9, y: lamp.y - 1.5, width: 18, height: 4))
 
 let flakes: [(CGFloat, CGFloat, CGFloat)] = [
-    (120, 80, 2.4), (205, 104, 1.8), (148, 132, 2.8), (232, 150, 1.6), (96, 160, 1.7), (190, 62, 1.5),
-    (318, 70, 1.3), (402, 118, 1.6), (560, 84, 1.4), (604, 150, 1.8), (512, 180, 1.2), (352, 160, 1.4),
-    (44, 108, 1.4), (276, 116, 1.2), (448, 56, 1.3),
+    (120, 80, 2.8), (205, 104, 2.2), (148, 132, 3.2), (232, 150, 2.0), (96, 160, 2.1), (190, 62, 1.9),
+    (318, 70, 1.7), (402, 118, 2.0), (560, 84, 1.8), (604, 150, 2.2), (512, 180, 1.6), (352, 160, 1.8),
+    (44, 108, 1.8), (276, 116, 1.6), (448, 56, 1.7),
 ]
 for (x, y, r) in flakes {
     let lit = abs(x - lamp.x) < 20 + (y - lamp.y) * 0.45
     let center = CGPoint(x: x, y: y)
     let glow = CGGradient(colorsSpace: space,
-                          colors: [color(lit ? 0xfff3dc : 0xd8dce6, lit ? 0.95 : 0.4), color(lit ? 0xffd696 : 0xd8dce6, 0)] as CFArray,
+                          colors: [color(lit ? 0xffb347 : 0xc84b1e, lit ? 0.95 : 0.65), color(lit ? 0xff6e1a : 0x8a2814, 0)] as CFArray,
                           locations: [0, 1])!
     ctx.drawRadialGradient(glow, startCenter: center, startRadius: 0, endCenter: center, endRadius: r * (lit ? 2.6 : 1.8), options: [])
 }
@@ -83,12 +83,12 @@ drift.closeSubpath()
 ctx.saveGState()
 ctx.addPath(drift)
 ctx.clip()
-let snow = CGGradient(colorsSpace: space, colors: [color(0x9a8f82), color(0x7d766f), color(0x55524f)] as CFArray, locations: [0, 0.45, 1])!
+let snow = CGGradient(colorsSpace: space, colors: [color(0x9c461c), color(0x632814), color(0x2e1312)] as CFArray, locations: [0, 0.45, 1])!
 ctx.drawLinearGradient(snow, start: CGPoint(x: 0, y: 250), end: CGPoint(x: 0, y: size.height), options: [])
 let pool = CGPoint(x: lamp.x, y: 262)
-let lit = CGGradient(colorsSpace: space, colors: [color(0xf2e4cc, 0.55), color(0xf2e4cc, 0)] as CFArray, locations: [0, 1])!
+let lit = CGGradient(colorsSpace: space, colors: [color(0xff9c38, 0.55), color(0xff6b1a, 0)] as CFArray, locations: [0, 1])!
 ctx.drawRadialGradient(lit, startCenter: pool, startRadius: 0, endCenter: pool, endRadius: 150, options: [])
-let crust = CGGradient(colorsSpace: space, colors: [color(0xffffff, 0.22), color(0xffffff, 0)] as CFArray, locations: [0, 1])!
+let crust = CGGradient(colorsSpace: space, colors: [color(0xffb84d, 0.30), color(0xffb84d, 0)] as CFArray, locations: [0, 1])!
 ctx.drawLinearGradient(crust, start: CGPoint(x: 0, y: 252), end: CGPoint(x: 0, y: 268), options: [])
 ctx.restoreGState()
 

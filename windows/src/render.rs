@@ -40,6 +40,7 @@ struct Uniforms {
     height_offset: i32,
     light: [f32; 4],
     shadow_tint: [f32; 4],
+    lantern: [f32; 4],
     occluders: [[f32; 4]; 16],
 }
 
@@ -48,6 +49,7 @@ struct Uniforms {
 pub struct Ambient {
     pub light: [f32; 3],
     pub shadow_tint: [f32; 4],
+    pub cursor: [f32; 2],
 }
 
 pub struct Gpu {
@@ -262,6 +264,7 @@ impl Surface {
             context.VSSetConstantBuffers(0, Some(&[constants.clone()]));
             context.PSSetConstantBuffers(0, Some(&[constants]));
 
+            let flicker = 0.88 + 0.08 * (time * 6.7).sin() + 0.04 * (time * 17.3).cos();
             let mut uniforms = Uniforms {
                 view_size: [simulation.width(), simulation.height()],
                 scale: 1.0,
@@ -275,6 +278,7 @@ impl Surface {
                 height_offset: 0,
                 light: [ambient.light[0], ambient.light[1], ambient.light[2], 1.0],
                 shadow_tint: ambient.shadow_tint,
+                lantern: [ambient.cursor[0], ambient.cursor[1], 1.0, flicker],
                 occluders: [[0.0; 4]; 16],
             };
 
