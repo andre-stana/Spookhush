@@ -250,9 +250,23 @@ final class SnowSimulation {
     }
 
     var pileTop: Float { ground.top }
-    var hasSnow: Bool { layers.contains { $0.top > 0.5 } || Preferences.cornerPumpkins }
-    var spriteCount: Int { flakes.count + grains.count + motes.count + 4 }
+    var hasSnow: Bool { layers.contains { $0.top > 0.5 } || (!Preferences.classicMode && Preferences.cornerPumpkins) }
+    var spriteCount: Int { flakes.count + grains.count + motes.count + (Preferences.classicMode ? 0 : 4) }
     var columnCount: Int { layers.reduce(0) { $0 + 2 * $1.count } }
+
+    func setClassicMode(_ classic: Bool) {
+        if classic {
+            for i in flakes.indices {
+                if flakes[i].lump < -1.0 || flakes[i].lump >= 2.0 {
+                    flakes[i].lump = -random.range(0.05, 1.0)
+                    flakes[i].size = min(flakes[i].size, 6.5)
+                    flakes[i].tint = random.autumnLeafColor()
+                }
+            }
+            motes.removeAll()
+        }
+        heightsChanged = true
+    }
 
     func resize(width: Float, height: Float) {
         guard width != self.width || height != self.height else { return }
@@ -288,9 +302,10 @@ final class SnowSimulation {
             layer.refreshTop()
             layer.previousBaseY = layer.base.y
         }
-        let toolActive = Preferences.cursorTool != .lantern && (clock - lastCursorMoveTime < 0.45)
-        let lanternActive = (Preferences.lanternLight || toolActive) && cursorMoved && (hasSnow || !flakes.isEmpty)
-        let pushed = clock - lastWindowMotion < 0.6 || clock - lastCursorPush < 0.3 || gust != nil || lanternActive || leftPumpkinExcitement > 0.05 || rightPumpkinExcitement > 0.05
+        let isClassic = Preferences.classicMode
+        let toolActive = !isClassic && Preferences.cursorTool != .lantern && (clock - lastCursorMoveTime < 0.45)
+        let lanternActive = !isClassic && (Preferences.lanternLight || toolActive) && cursorMoved && (hasSnow || !flakes.isEmpty)
+        let pushed = clock - lastWindowMotion < 0.6 || clock - lastCursorPush < 0.3 || gust != nil || lanternActive || (!isClassic && (leftPumpkinExcitement > 0.05 || rightPumpkinExcitement > 0.05))
         let flying = grains.count > 24 || clock < scatteredUntil
         if pushed {
             pace = .interactive
@@ -299,7 +314,7 @@ final class SnowSimulation {
         } else {
             pace = .calm
         }
-        let changed = wasMoving || !flakes.isEmpty || !grains.isEmpty || !motes.isEmpty || heightsChanged || windowsChanged || lanternActive || Preferences.cornerPumpkins
+        let changed = wasMoving || !flakes.isEmpty || !grains.isEmpty || !motes.isEmpty || heightsChanged || windowsChanged || lanternActive || (!isClassic && Preferences.cornerPumpkins)
         windowsChanged = false
         return changed
     }
@@ -353,7 +368,7 @@ final class SnowSimulation {
             count += 1
         }
         // Giant Corner Jack-o'-lanterns
-        if Preferences.cornerPumpkins {
+        if !Preferences.classicMode && Preferences.cornerPumpkins {
             let cur = cursor ?? SIMD2(width * 0.5, height * 0.5)
             let leftPos = cornerPumpkinPosition(left: true)
             let rightPos = cornerPumpkinPosition(left: false)
@@ -387,7 +402,7 @@ final class SnowSimulation {
             }
         }
         // Active Cursor Tool Visual
-        let tool = Preferences.cursorTool
+        let tool = Preferences.classicMode ? .lantern : Preferences.cursorTool
         if tool != .lantern, let cur = cursor, clock - lastCursorMoveTime < 0.45, count < capacity {
             let fade = Float(max(0, min(1, (0.45 - (clock - lastCursorMoveTime)) / 0.25)))
             let dir = SIMD2<Float>(cos(lastToolAngle), sin(lastToolAngle))
@@ -955,7 +970,8 @@ final class SnowSimulation {
         // Corner Jack-o'-lantern interactions
         leftPumpkinExcitement *= exp(-dt * 2.4)
         rightPumpkinExcitement *= exp(-dt * 2.4)
-        if Preferences.cornerPumpkins && cursorMoved {
+        let isClassic = Preferences.classicMode
+        if !isClassic && Preferences.cornerPumpkins && cursorMoved {
             let leftPos = cornerPumpkinPosition(left: true)
             let rightPos = cornerPumpkinPosition(left: false)
             if simd_length(center - leftPos) < 46 && clock - lastLeftPumpkinTouch > 1.1 {
@@ -971,7 +987,7 @@ final class SnowSimulation {
         }
 
         // 24k Golden Cursor Trail (unlocked via Autumn Alchemist achievement or Golden Magnet)
-        if cursorMoved && (AchievementsManager.shared.hasGoldenCursorTrail || Preferences.cursorTool == .magnet) && motes.count < maxMotes && random.next() < 0.55 {
+        if !isClassic && cursorMoved && (AchievementsManager.shared.hasGoldenCursorTrail || Preferences.cursorTool == .magnet) && motes.count < maxMotes && random.next() < 0.55 {
             motes.append(Mote(
                 position: center + SIMD2(random.range(-6, 6), random.range(-6, 6)),
                 velocity: SIMD2(random.range(-25, 25), random.range(15, 55)) - cursorVelocity * 0.08,
@@ -982,7 +998,8 @@ final class SnowSimulation {
             ))
         }
 
-        let activeRadius: Float = switch Preferences.cursorTool {
+        let activeTool = isClassic ? .lantern : Preferences.cursorTool
+        let activeRadius: Float = switch activeTool {
         case .lantern: cursorRadius
         case .vacuum: 32 * AchievementsManager.shared.vacuumRadiusMultiplier
         case .swiffer: 44 * AchievementsManager.shared.swifferRadiusMultiplier
@@ -1054,7 +1071,7 @@ final class SnowSimulation {
     }
 
     private func carve(_ layer: SnowLayer, at center: SIMD2<Float>, velocity: SIMD2<Float>, travel: Float, final: Bool) {
-        let tool = Preferences.cursorTool
+        let tool = Preferences.classicMode ? .lantern : Preferences.cursorTool
         let radius: Float = switch tool {
         case .lantern: cursorRadius
         case .vacuum: 32 * AchievementsManager.shared.vacuumRadiusMultiplier
@@ -1219,7 +1236,7 @@ final class SnowSimulation {
         let wind = breeze()
         let follow = min(1, dt * 1.2)
         let settle = min(1, dt * 1.6)
-        let tool = Preferences.cursorTool
+        let tool = Preferences.classicMode ? .lantern : Preferences.cursorTool
         let wakeRadius: Float = switch tool {
         case .lantern: 80
         case .vacuum: 190 * AchievementsManager.shared.vacuumRadiusMultiplier
@@ -1490,9 +1507,10 @@ final class SnowSimulation {
         let near = random.next() < 0.02
         let depth = near ? 1 : pow(random.next(), 1.6)
         let roll = random.next()
-        let goldenChance = 0.038 * AchievementsManager.shared.goldenSpawnMultiplier
-        let isGoldenLeaf = !near && roll < goldenChance
-        let isPumpkin = !near && !isGoldenLeaf && roll < (goldenChance + 0.048)
+        let isClassic = Preferences.classicMode
+        let goldenChance = isClassic ? 0 : (0.038 * AchievementsManager.shared.goldenSpawnMultiplier)
+        let isGoldenLeaf = !isClassic && !near && roll < goldenChance
+        let isPumpkin = !isClassic && !near && !isGoldenLeaf && roll < (goldenChance + 0.048)
         let isEmber = !isGoldenLeaf && !isPumpkin && roll < (goldenChance + 0.25)
 
         let fallSpeed: Float

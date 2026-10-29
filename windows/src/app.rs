@@ -41,6 +41,7 @@ const ID_UPDATES: u32 = 206;
 const ID_CLEAR: u32 = 207;
 const ID_CORNER_PUMPKINS: u32 = 208;
 const ID_TROPHIES: u32 = 209;
+const ID_CLASSIC_MODE: u32 = 210;
 const ID_QUIT: u32 = 299;
 const TIMER_WELCOME: usize = 1;
 const TIMER_UPDATES: usize = 2;
@@ -246,26 +247,34 @@ fn show_menu(window: HWND, x: i32, y: i32) {
         let _ = CheckMenuRadioItem(snowfall, ID_SNOWFALL, ID_SNOWFALL + 4, ID_SNOWFALL + current, MF_BYCOMMAND.0);
         let checked = |on: bool| if on { MF_CHECKED } else { MF_UNCHECKED };
         let _ = AppendMenuW(menu, MF_POPUP, snowfall.0 as usize, w!("Autumn Fall"));
-
-        let Ok(tools) = CreatePopupMenu() else { return };
-        for (i, option) in CursorTool::ALL.iter().enumerate() {
-            let title: Vec<u16> = option.title().encode_utf16().chain([0]).collect();
-            let _ = AppendMenuW(tools, MF_STRING, (ID_CURSOR_TOOL + i as u32) as usize, PCWSTR(title.as_ptr()));
-        }
-        let current_tool = CursorTool::ALL.iter().position(|&t| t == settings.cursor_tool).unwrap_or(0) as u32;
-        let _ = CheckMenuRadioItem(tools, ID_CURSOR_TOOL, ID_CURSOR_TOOL + 4, ID_CURSOR_TOOL + current_tool, MF_BYCOMMAND.0);
-        let _ = AppendMenuW(menu, MF_POPUP, tools.0 as usize, w!("Cursor Tool"));
-
         let _ = AppendMenuW(menu, MF_SEPARATOR, 0, PCWSTR::null());
         let _ = AppendMenuW(menu, MF_STRING | checked(settings.accumulate), ID_ACCUMULATE as usize, w!("Accumulate"));
         let melt = MF_STRING | checked(settings.melt) | if settings.accumulate { MF_ENABLED } else { MF_GRAYED };
         let _ = AppendMenuW(menu, melt, ID_MELT as usize, w!("Fade Leaves"));
         let windows = MF_STRING | checked(settings.snow_on_windows) | if settings.behind_windows { MF_GRAYED } else { MF_ENABLED };
         let _ = AppendMenuW(menu, windows, ID_WINDOWS as usize, w!("Leaves on Windows"));
-        let _ = AppendMenuW(menu, MF_STRING | checked(settings.corner_pumpkins), ID_CORNER_PUMPKINS as usize, w!("Corner Jack-o'-Lanterns"));
         let _ = AppendMenuW(menu, MF_STRING, ID_CLEAR as usize, w!("Clear Leaves"));
         let _ = AppendMenuW(menu, MF_SEPARATOR, 0, PCWSTR::null());
-        let _ = AppendMenuW(menu, MF_STRING, ID_TROPHIES as usize, w!("🏆 Trophies & Golden Leaves…"));
+
+        let _ = AppendMenuW(menu, MF_STRING | checked(settings.classic_mode), ID_CLASSIC_MODE as usize, w!("🍂 Classic Mode (Simple & Light)"));
+
+        let Ok(extras) = CreatePopupMenu() else { return };
+        let Ok(tools) = CreatePopupMenu() else { return };
+        for (i, option) in CursorTool::ALL.iter().enumerate() {
+            let title: Vec<u16> = option.title().encode_utf16().chain([0]).collect();
+            let _ = AppendMenuW(tools, MF_STRING, (ID_CURSOR_TOOL + i as u32) as usize, PCWSTR(title.as_ptr()));
+        }
+        if !settings.classic_mode {
+            let current_tool = CursorTool::ALL.iter().position(|&t| t == settings.cursor_tool).unwrap_or(0) as u32;
+            let _ = CheckMenuRadioItem(tools, ID_CURSOR_TOOL, ID_CURSOR_TOOL + 4, ID_CURSOR_TOOL + current_tool, MF_BYCOMMAND.0);
+        }
+        let _ = AppendMenuW(extras, MF_POPUP, tools.0 as usize, w!("Cursor Tool"));
+        let _ = AppendMenuW(extras, MF_SEPARATOR, 0, PCWSTR::null());
+        let _ = AppendMenuW(extras, MF_STRING | checked(!settings.classic_mode && settings.corner_pumpkins), ID_CORNER_PUMPKINS as usize, w!("Corner Jack-o'-Lanterns"));
+        let _ = AppendMenuW(extras, MF_SEPARATOR, 0, PCWSTR::null());
+        let _ = AppendMenuW(extras, MF_STRING, ID_TROPHIES as usize, w!("🏆 Trophies & Golden Leaves…"));
+        let _ = AppendMenuW(menu, MF_POPUP | checked(!settings.classic_mode), extras.0 as usize, w!("🎃 Halloween Extras"));
+
         let _ = AppendMenuW(menu, MF_SEPARATOR, 0, PCWSTR::null());
         let _ = AppendMenuW(menu, MF_STRING | checked(settings.behind_windows), ID_BEHIND as usize, w!("Behind Windows"));
         let _ = AppendMenuW(menu, MF_STRING | checked(settings.show_in_screenshots), ID_SCREENSHOTS as usize, w!("Show in Screenshots"));
@@ -317,6 +326,10 @@ fn choose(window: HWND, chosen: u32, login: bool) {
             let Some(app) = app else { return };
             let settings = &mut app.settings;
             let command = match chosen {
+                ID_CLASSIC_MODE => {
+                    settings.classic_mode = !settings.classic_mode;
+                    Command::ClassicMode(settings.classic_mode)
+                }
                 ID_ACCUMULATE => {
                     settings.accumulate = !settings.accumulate;
                     Command::Accumulate(settings.accumulate)
@@ -330,6 +343,7 @@ fn choose(window: HWND, chosen: u32, login: bool) {
                     Command::SnowOnWindows(settings.snow_on_windows)
                 }
                 ID_CORNER_PUMPKINS => {
+                    settings.classic_mode = false;
                     settings.corner_pumpkins = !settings.corner_pumpkins;
                     Command::CornerPumpkins(settings.corner_pumpkins)
                 }
@@ -343,6 +357,7 @@ fn choose(window: HWND, chosen: u32, login: bool) {
                 }
                 id if (ID_CURSOR_TOOL..ID_CURSOR_TOOL + 10).contains(&id) => {
                     let Some(&tool) = CursorTool::ALL.get((id - ID_CURSOR_TOOL) as usize) else { return };
+                    settings.classic_mode = false;
                     settings.cursor_tool = tool;
                     Command::CursorTool(tool)
                 }

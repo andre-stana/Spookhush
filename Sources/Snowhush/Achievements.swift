@@ -442,8 +442,10 @@ final class AchievementsManager {
         title: String,
         subtitle: String,
         progressFraction: CGFloat = 1.0,
-        isUnlock: Bool = true
+        isUnlock: Bool = true,
+        forceShow: Bool = false
     ) {
+        guard forceShow || !Preferences.classicMode else { return }
         toastQueue.append(ToastItem(
             icon: icon,
             kicker: kicker,
@@ -830,7 +832,8 @@ final class AchievementsManager {
             title: id.title,
             subtitle: id.rewardText ?? id.detail,
             progressFraction: frac,
-            isUnlock: done
+            isUnlock: done,
+            forceShow: true
         )
     }
 

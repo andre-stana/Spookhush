@@ -36,6 +36,7 @@ pub struct Piece {
 
 pub enum Command {
     Snowfall(Snowfall),
+    ClassicMode(bool),
     CursorTool(CursorTool),
     CornerPumpkins(bool),
     Accumulate(bool),
@@ -112,11 +113,16 @@ fn run_loop(commands: &Receiver<Command>, links: &Links, mut settings: Settings)
                     settings.snowfall = snowfall;
                     screens.iter_mut().for_each(|screen| screen.simulation.set_snowfall(snowfall));
                 }
+                Command::ClassicMode(on) => {
+                    settings.classic_mode = on;
+                }
                 Command::CursorTool(tool) => {
+                    settings.classic_mode = false;
                     settings.cursor_tool = tool;
                     screens.iter_mut().for_each(|screen| screen.simulation.cursor_tool = tool);
                 }
                 Command::CornerPumpkins(on) => {
+                    settings.classic_mode = false;
                     settings.corner_pumpkins = on;
                     screens.iter_mut().for_each(|screen| screen.simulation.corner_pumpkins = on);
                 }
@@ -263,15 +269,15 @@ fn run_loop(commands: &Receiver<Command>, links: &Links, mut settings: Settings)
             }
             let windows = (settings.snow_on_windows && !settings.behind_windows).then_some(&tracker);
             let time = (clock.seconds(now - started) % 1000.0) as f32;
-            let fever = now < fever_until;
-            let golden_mult = trophies.golden_spawn_multiplier(fever);
-            let golden_trail = trophies.has_golden_cursor_trail(fever);
+            let fever = !settings.classic_mode && now < fever_until;
+            let golden_mult = if settings.classic_mode { 0.0 } else { trophies.golden_spawn_multiplier(fever) };
+            let golden_trail = !settings.classic_mode && trophies.has_golden_cursor_trail(fever);
             let mut lost = false;
             let mut released = false;
             let mut total_events = SimulationEvents::default();
             for screen in screens.iter_mut().filter(|screen| screen.next_due <= now + clock.tolerance()) {
-                screen.simulation.cursor_tool = settings.cursor_tool;
-                screen.simulation.corner_pumpkins = settings.corner_pumpkins;
+                screen.simulation.cursor_tool = if settings.classic_mode { CursorTool::Lantern } else { settings.cursor_tool };
+                screen.simulation.corner_pumpkins = !settings.classic_mode && settings.corner_pumpkins;
                 screen.simulation.golden_spawn_multiplier = golden_mult;
                 screen.simulation.has_golden_cursor_trail = golden_trail;
                 let covering = tracker.covering(&screen.monitor.bounds);
@@ -324,7 +330,7 @@ fn run_loop(commands: &Receiver<Command>, links: &Links, mut settings: Settings)
                     let _ = PostMessageW(Some(HWND(links.controller as _)), WM_TROPHY, WPARAM(100), LPARAM(trophies.current_combo as isize));
                 }
             }
-            if !unlocked.is_empty() {
+            if !settings.classic_mode && !unlocked.is_empty() {
                 screens.iter_mut().for_each(|screen| screen.simulation.trigger_trophy_celebration());
                 for trophy in unlocked {
                     unsafe {
@@ -413,8 +419,9 @@ fn new_simulation(monitor: &Monitor, settings: &Settings) -> SnowSimulation {
     let mut simulation = SnowSimulation::new(width as f32, height as f32, settings.snowfall);
     simulation.thaws = settings.melt;
     simulation.accumulates = settings.accumulate;
-    simulation.cursor_tool = settings.cursor_tool;
-    simulation.corner_pumpkins = settings.corner_pumpkins;
+    simulation.cursor_tool = if settings.classic_mode { CursorTool::Lantern } else { settings.cursor_tool };
+    simulation.corner_pumpkins = !settings.classic_mode && settings.corner_pumpkins;
+    simulation.golden_spawn_multiplier = if settings.classic_mode { 0.0 } else { 1.0 };
     simulation.set_snowfall_held(!settings.welcomed);
     simulation
 }

@@ -147,9 +147,10 @@ final class Renderer: NSObject, MTKViewDelegate {
         )
 
         let flicker = 0.88 + 0.12 * sin(time * 9.5) * cos(time * 14.3)
-        let lanternEnabled: Float = Preferences.lanternLight ? 1.0 : 0.0
-        let flameRGB = Preferences.flameTheme.color
-        let cornerEnabled: Float = Preferences.cornerPumpkins ? 1.0 : 0.0
+        let isClassic = Preferences.classicMode
+        let lanternEnabled: Float = (!isClassic && Preferences.lanternLight) ? 1.0 : 0.0
+        let flameRGB = isClassic ? FlameTheme.classicAmber.color : Preferences.flameTheme.color
+        let cornerEnabled: Float = (!isClassic && Preferences.cornerPumpkins) ? 1.0 : 0.0
         var uniforms = Uniforms(
             viewSize: SIMD2(simulation.width, simulation.height),
             scale: scale,

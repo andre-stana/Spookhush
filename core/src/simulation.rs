@@ -1924,15 +1924,16 @@ impl Air {
 
     fn make_flake(&mut self, width: f32, y: f32) -> Flake {
         let wind = self.wind_speed();
+        let classic = self.golden_spawn_multiplier <= 0.0;
         let golden_mult = self.golden_spawn_multiplier.max(1.0);
         let random = &mut self.random;
         let near = random.next() < 0.025;
         let depth = if near { 1.0 } else { random.next().powf(1.5) };
         let kind_roll = random.next();
-        let golden_chance = 0.038 * golden_mult;
-        let is_golden_leaf = !near && kind_roll < golden_chance;
+        let golden_chance = if classic { 0.0 } else { 0.038 * golden_mult };
+        let is_golden_leaf = !classic && !near && kind_roll < golden_chance;
         let is_blood_moon = is_golden_leaf && random.next() < 0.16;
-        let is_pumpkin = !near && !is_golden_leaf && kind_roll > 0.93 && depth > 0.25;
+        let is_pumpkin = !classic && !near && !is_golden_leaf && kind_roll > 0.93 && depth > 0.25;
         let is_ember = !is_golden_leaf && !is_pumpkin && (kind_roll > 0.68 || near);
 
         let fall_speed = if near {

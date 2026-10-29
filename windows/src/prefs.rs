@@ -22,6 +22,7 @@ pub struct Settings {
     pub behind_windows: bool,
     pub show_in_screenshots: bool,
     pub welcomed: bool,
+    pub classic_mode: bool,
     pub cursor_tool: CursorTool,
     pub corner_pumpkins: bool,
 }
@@ -39,6 +40,7 @@ impl Settings {
             behind_windows: read(w!("behindWindows")).is_some_and(|v| v != 0),
             show_in_screenshots: read(w!("showInScreenshots")).is_some_and(|v| v != 0),
             welcomed: read(w!("welcomed")).is_some_and(|v| v != 0),
+            classic_mode: read(w!("classicMode")).is_none_or(|v| v != 0),
             cursor_tool: cursor_tool.unwrap_or(CursorTool::Lantern),
             corner_pumpkins: read(w!("cornerPumpkins")).is_none_or(|v| v != 0),
         }
@@ -54,6 +56,7 @@ impl Settings {
         write(w!("behindWindows"), self.behind_windows as u32);
         write(w!("showInScreenshots"), self.show_in_screenshots as u32);
         write(w!("welcomed"), self.welcomed as u32);
+        write(w!("classicMode"), self.classic_mode as u32);
         write(w!("cursorTool"), cursor_tool as u32);
         write(w!("cornerPumpkins"), self.corner_pumpkins as u32);
     }

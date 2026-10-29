@@ -11,13 +11,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, SPUSta
     private var thaws = true
     private var snowOnWindows = true
     private var behindWindows = false
+    private var classicMode = true
     private var lanternLight = true
     private var cornerPumpkins = true
     private var cursorTool = CursorTool.lantern
-    private var soundEffects = true
+    private var soundEffects = false
     private var snowfallHeld = false
     private var statusItem: NSStatusItem!
     private let snowfallSlider = SnowfallSlider()
+    private var classicModeItem: NSMenuItem!
+    private var extrasMenuItem: NSMenuItem!
     private var accumulateItem: NSMenuItem!
     private var meltItem: NSMenuItem!
     private var snowOnWindowsItem: NSMenuItem!
@@ -54,11 +57,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, SPUSta
         thaws = Preferences.meltSnow
         snowOnWindows = Preferences.snowOnWindows
         behindWindows = Preferences.behindWindows
+        classicMode = Preferences.classicMode
         lanternLight = Preferences.lanternLight
         cornerPumpkins = Preferences.cornerPumpkins
         cursorTool = Preferences.cursorTool
         soundEffects = Preferences.soundEffects
-        SoundEngine.shared.isEnabled = soundEffects
+        SoundEngine.shared.isEnabled = !classicMode && soundEffects
         AchievementsManager.shared.onTrophyCelebration = { [weak self] in
             self?.screens.forEach { $0.simulation.triggerTrophyCelebration() }
         }
@@ -196,17 +200,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, SPUSta
         snowOnWindowsItem = add("Leaves on Windows", #selector(toggleSnowOnWindows), to: menu)
         clearItem = add("Clear Leaves", #selector(clearSnow), to: menu)
         menu.addItem(.separator())
-        menu.addItem(.sectionHeader(title: "Cursor Tool"))
+
+        classicModeItem = add("🍂 Classic Mode (Simple & Light)", #selector(toggleClassicMode), to: menu)
+
+        let extrasMenu = NSMenu()
+        extrasMenu.autoenablesItems = false
+        extrasMenu.addItem(.sectionHeader(title: "Cursor Tool"))
         for tool in CursorTool.allCases {
-            let tItem = add(tool.title, #selector(selectCursorTool(_:)), to: menu)
+            let tItem = add(tool.title, #selector(selectCursorTool(_:)), to: extrasMenu)
             tItem.tag = tool.rawValue
             toolItems[tool] = tItem
         }
-        menu.addItem(.separator())
-        cornerPumpkinsItem = add("Corner Jack-o'-Lanterns", #selector(toggleCornerPumpkins), to: menu)
-        lanternItem = add("Lantern Light", #selector(toggleLanternLight), to: menu)
-        soundItem = add("Sound Effects", #selector(toggleSoundEffects), to: menu)
-        trophiesItem = add("🏆 Trophies & Golden Leaves…", #selector(openTrophiesWindow), to: menu)
+        extrasMenu.addItem(.separator())
+        cornerPumpkinsItem = add("Corner Jack-o'-Lanterns", #selector(toggleCornerPumpkins), to: extrasMenu)
+        lanternItem = add("Lantern Light", #selector(toggleLanternLight), to: extrasMenu)
+        soundItem = add("Sound Effects", #selector(toggleSoundEffects), to: extrasMenu)
+        extrasMenu.addItem(.separator())
+        trophiesItem = add("🏆 Trophies & Golden Leaves…", #selector(openTrophiesWindow), to: extrasMenu)
+
+        extrasMenuItem = NSMenuItem(title: "🎃 Halloween Extras", action: nil, keyEquivalent: "")
+        extrasMenuItem.submenu = extrasMenu
+        menu.addItem(extrasMenuItem)
+
         menu.addItem(.separator())
         behindWindowsItem = add("Behind Windows", #selector(toggleBehindWindows), to: menu)
         screenshotsItem = add("Show in Screenshots", #selector(toggleScreenshots), to: menu)
@@ -229,6 +244,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, SPUSta
 
     func menuNeedsUpdate(_ menu: NSMenu) {
         snowfallSlider.snowfall = snowfall
+        classicModeItem.state = classicMode ? .on : .off
+        extrasMenuItem.state = classicMode ? .off : .on
         accumulateItem.state = accumulates ? .on : .off
         meltItem.state = thaws ? .on : .off
         meltItem.isEnabled = accumulates
@@ -236,11 +253,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, SPUSta
         snowOnWindowsItem.isEnabled = !behindWindows
         clearItem.isEnabled = screens.contains { $0.simulation.hasSnow || $0.simulation.spriteCount > 0 }
         for (tool, item) in toolItems {
-            item.state = (tool == cursorTool) ? .on : .off
+            item.state = (!classicMode && tool == cursorTool) ? .on : .off
         }
-        cornerPumpkinsItem.state = cornerPumpkins ? .on : .off
-        lanternItem.state = lanternLight ? .on : .off
-        soundItem.state = soundEffects ? .on : .off
+        cornerPumpkinsItem.state = (!classicMode && cornerPumpkins) ? .on : .off
+        lanternItem.state = (!classicMode && lanternLight) ? .on : .off
+        soundItem.state = (!classicMode && soundEffects) ? .on : .off
         let ach = AchievementsManager.shared
         trophiesItem.title = "🏆 Trophies (\(ach.unlockedCount)/\(ach.totalCount)) · ✨ \(ach.goldenLeavesCollected) Gold…"
         behindWindowsItem.state = behindWindows ? .on : .off
@@ -253,6 +270,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, SPUSta
         Preferences.snowfall = snowfall
         for snow in screens { snow.simulation.snowfall = snowfall }
         updateStatusIcon()
+    }
+
+    @objc private func toggleClassicMode() {
+        classicMode.toggle()
+        Preferences.classicMode = classicMode
+        SoundEngine.shared.isEnabled = !classicMode && soundEffects
+        for snow in screens { snow.simulation.setClassicMode(classicMode) }
+    }
+
+    private func disableClassicModeIfNeeded() {
+        guard classicMode else { return }
+        classicMode = false
+        Preferences.classicMode = false
+        SoundEngine.shared.isEnabled = soundEffects
+        for snow in screens { snow.simulation.setClassicMode(false) }
     }
 
     @objc private func toggleAccumulate() {
@@ -280,26 +312,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, SPUSta
     }
 
     @objc private func toggleLanternLight() {
+        disableClassicModeIfNeeded()
         lanternLight.toggle()
         Preferences.lanternLight = lanternLight
     }
 
     @objc private func toggleCornerPumpkins() {
+        disableClassicModeIfNeeded()
         cornerPumpkins.toggle()
         Preferences.cornerPumpkins = cornerPumpkins
     }
 
     @objc private func selectCursorTool(_ sender: NSMenuItem) {
         guard let tool = CursorTool(rawValue: sender.tag) else { return }
+        disableClassicModeIfNeeded()
         cursorTool = tool
         Preferences.cursorTool = tool
     }
 
     @objc private func openTrophiesWindow() {
+        disableClassicModeIfNeeded()
         AchievementsManager.shared.showAchievementsWindow()
     }
 
     @objc private func toggleSoundEffects() {
+        disableClassicModeIfNeeded()
         soundEffects.toggle()
         Preferences.soundEffects = soundEffects
         SoundEngine.shared.isEnabled = soundEffects

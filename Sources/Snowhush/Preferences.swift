@@ -104,6 +104,7 @@ enum Preferences {
     private static let snowOnWindowsKey = "snowOnWindows"
     private static let welcomedKey = "welcomed"
     private static let showInScreenshotsKey = "showInScreenshots"
+    private static let classicModeKey = "classicMode"
     private static let lanternLightKey = "lanternLight"
     private static let soundEffectsKey = "soundEffects"
     private static let cornerPumpkinsKey = "cornerPumpkins"
@@ -119,8 +120,9 @@ enum Preferences {
             accumulateKey: true,
             snowOnWindowsKey: true,
             showInScreenshotsKey: false,
+            classicModeKey: true,
             lanternLightKey: true,
-            soundEffectsKey: true,
+            soundEffectsKey: false,
             cornerPumpkinsKey: true,
             cursorToolKey: CursorTool.lantern.rawValue,
             flameThemeKey: FlameTheme.classicAmber.rawValue,
@@ -160,6 +162,11 @@ enum Preferences {
     static var showInScreenshots: Bool {
         get { defaults.bool(forKey: showInScreenshotsKey) }
         set { defaults.set(newValue, forKey: showInScreenshotsKey) }
+    }
+
+    static var classicMode: Bool {
+        get { defaults.bool(forKey: classicModeKey) }
+        set { defaults.set(newValue, forKey: classicModeKey) }
     }
 
     static var lanternLight: Bool {
