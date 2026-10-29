@@ -78,6 +78,48 @@ impl Snowfall {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum CursorTool {
+    #[default]
+    Lantern,
+    Vacuum,
+    Swiffer,
+    Blower,
+    Magnet,
+}
+
+impl CursorTool {
+    pub const ALL: [CursorTool; 5] = [
+        CursorTool::Lantern,
+        CursorTool::Vacuum,
+        CursorTool::Swiffer,
+        CursorTool::Blower,
+        CursorTool::Magnet,
+    ];
+
+    pub fn title(self) -> &'static str {
+        match self {
+            CursorTool::Lantern => "🕯️ Lantern (Classic)",
+            CursorTool::Vacuum => "👻 Ghost-Vac (Vortex Suction)",
+            CursorTool::Swiffer => "🧹 Magic Swiffer (Clean Sweep)",
+            CursorTool::Blower => "💨 Gust Blower (Leaf Blaster)",
+            CursorTool::Magnet => "🧲 Golden Magnet (Gold Attractor)",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+pub struct SimulationEvents {
+    pub golden_caught: u32,
+    pub blood_moon_caught: u32,
+    pub vacuumed: u32,
+    pub swept: u32,
+    pub blown: u32,
+    pub pumpkins_touched: u32,
+    pub window_shed: u32,
+    pub first_rustle: bool,
+}
+
 /// How briskly the scene changes, which sets how often it is drawn.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Pace {
@@ -222,6 +264,15 @@ struct Air {
     windows_changed: bool,
     last_window_motion: f64,
     last_cursor_push: f64,
+    last_cursor_move: f64,
+    last_tool_angle: f32,
+    left_pumpkin_excitement: f32,
+    right_pumpkin_excitement: f32,
+    last_left_pumpkin_touch: f64,
+    last_right_pumpkin_touch: f64,
+    cursor_tool: CursorTool,
+    golden_spawn_multiplier: f32,
+    events: SimulationEvents,
     /// Snow released while the air is full, laid straight onto the ground at the end of the step.
     overflow: Vec<(f32, f32)>,
     gust: Option<Gust>,
@@ -235,6 +286,10 @@ pub struct SnowSimulation {
     density: f32,
     pub thaws: bool,
     pub accumulates: bool,
+    pub corner_pumpkins: bool,
+    pub cursor_tool: CursorTool,
+    pub golden_spawn_multiplier: f32,
+    pub has_golden_cursor_trail: bool,
     /// Side edges, left and right, with no display past them: a window slid past one leaves its snow heaped against the edge.
     pub walls: (bool, bool),
     /// Keeps the snowfall from starting until a scattered window's snow first reaches the bottom of the screen.
@@ -268,6 +323,10 @@ impl SnowSimulation {
             density: 1.0,
             thaws: false,
             accumulates: true,
+            corner_pumpkins: false,
+            cursor_tool: CursorTool::Lantern,
+            golden_spawn_multiplier: 1.0,
+            has_golden_cursor_trail: false,
             walls: (false, false),
             snowfall_held: false,
             snowfall_released: false,
@@ -294,12 +353,77 @@ impl SnowSimulation {
                 windows_changed: false,
                 last_window_motion: -10.0,
                 last_cursor_push: -10.0,
+                last_cursor_move: -10.0,
+                last_tool_angle: 0.0,
+                left_pumpkin_excitement: 0.0,
+                right_pumpkin_excitement: 0.0,
+                last_left_pumpkin_touch: -10.0,
+                last_right_pumpkin_touch: -10.0,
+                cursor_tool: CursorTool::Lantern,
+                golden_spawn_multiplier: 1.0,
+                events: SimulationEvents::default(),
                 overflow: Vec::new(),
                 gust: None,
             },
         };
         simulation.update_target();
         simulation
+    }
+
+    pub fn take_events(&mut self) -> SimulationEvents {
+        std::mem::take(&mut self.air.events)
+    }
+
+    pub fn trigger_trophy_celebration(&mut self) {
+        let banner_pos = V2::new(self.width * 0.5, (self.height - 110.0).max(120.0));
+        let count = MAX_MOTES.saturating_sub(self.air.motes.len()).min(36);
+        for k in 0..count {
+            let spread_x = self.air.random.range(-210.0, 210.0);
+            let angle = (k as f32 / count.max(1) as f32) * TAU;
+            let speed = self.air.random.range(50.0, 210.0);
+            let tint = if k % 4 == 0 {
+                [1.0, 0.98, 0.88]
+            } else if k % 5 == 0 {
+                [1.0, 0.35, 0.25]
+            } else {
+                [1.0, self.air.random.range(0.82, 0.96), 0.22]
+            };
+            self.air.motes.push(Mote {
+                position: banner_pos + V2::new(spread_x, self.air.random.range(-15.0, 20.0)),
+                velocity: V2::new(angle.cos() * speed, angle.sin() * speed * 0.7 - 30.0),
+                size: self.air.random.range(6.0, 12.5),
+                alpha: self.air.random.range(0.85, 1.0),
+                age: 0.0,
+                life: self.air.random.range(0.85, 1.6),
+                tint,
+            });
+        }
+        for j in 0..4 {
+            if self.air.flakes.len() >= self.target_flakes + 40 {
+                break;
+            }
+            let offset_x = (j as f32 - 1.5) * 95.0 + self.air.random.range(-40.0, 40.0);
+            let is_blood_moon = j == 2 && self.air.random.next() < 0.35;
+            self.air.flakes.push(Flake {
+                position: banner_pos + V2::new(offset_x, -10.0),
+                velocity: V2::new(self.air.random.range(-65.0, 65.0), self.air.random.range(-30.0, 50.0)),
+                fall_speed: 28.0,
+                size: if is_blood_moon { 16.5 } else { 14.8 },
+                depth: 0.95,
+                alpha: 0.99,
+                soft: 0.12,
+                phase: self.air.random.range(0.0, PHASE_WRAP),
+                sway_rate: 1.2,
+                sway_amount: 22.0,
+                settles: true,
+                mass: 1.0,
+                tint: if is_blood_moon { [1.0, 0.28, 0.22] } else { [1.0, 0.88, 0.22] },
+                tint_amount: 1.0,
+                lump: (if is_blood_moon { -2.0 } else { -1.0 }) - self.air.random.range(0.05, 0.95),
+                blown: 0.0,
+            });
+        }
+        self.air.last_cursor_push = self.air.clock;
     }
 
     pub fn width(&self) -> f32 {
@@ -347,7 +471,8 @@ impl SnowSimulation {
     }
 
     pub fn sprite_count(&self) -> usize {
-        self.air.flakes.len() + self.air.grains.len() + self.air.motes.len()
+        let extra = if self.corner_pumpkins { 3 } else { 0 };
+        self.air.flakes.len() + self.air.grains.len() + self.air.motes.len() + extra
     }
 
     /// Floats the renderer needs per frame: each layer's surface and bed.
@@ -368,6 +493,8 @@ impl SnowSimulation {
     /// Returns whether anything visible changed.
     pub fn step(&mut self, dt: f32, cursor: V2) -> bool {
         self.air.clock += dt as f64;
+        self.air.cursor_tool = self.cursor_tool;
+        self.air.golden_spawn_multiplier = self.golden_spawn_multiplier;
         let was_moving = self.sprite_count() > 0;
         self.air.heights_changed = false;
 
@@ -395,8 +522,14 @@ impl SnowSimulation {
             layer.previous_base_y = layer.base().y;
         }
         let air = &self.air;
+        let tool_active = self.cursor_tool != CursorTool::Lantern && (air.clock - air.last_cursor_move < 0.45);
         // Only a cursor that actually displaces snow needs the full rate; one passing near it or resting in it changes nothing.
-        let pushed = air.clock - air.last_window_motion < 0.6 || air.clock - air.last_cursor_push < 0.3 || air.gust.is_some();
+        let pushed = air.clock - air.last_window_motion < 0.6
+            || air.clock - air.last_cursor_push < 0.3
+            || air.gust.is_some()
+            || tool_active
+            || air.left_pumpkin_excitement > 0.05
+            || air.right_pumpkin_excitement > 0.05;
         // The steady trickle off window corners is a few tiny grains at a time; they read fine at the calm rate.
         let flying = air.grains.len() > 24 || air.clock < self.scattered_until;
         self.pace = if pushed {
@@ -406,9 +539,17 @@ impl SnowSimulation {
         } else {
             Pace::Calm
         };
-        let changed = was_moving || self.sprite_count() > 0 || self.air.heights_changed || self.air.windows_changed;
+        let changed = was_moving || self.sprite_count() > 0 || self.air.heights_changed || self.air.windows_changed || self.corner_pumpkins;
         self.air.windows_changed = false;
         changed
+    }
+
+    fn corner_pumpkin_position(&self, left: bool) -> V2 {
+        let x = if left { 58.0 } else { (self.width - 58.0).max(58.0) };
+        let ground = &self.layers[0];
+        let idx = ground.clamped_index(x);
+        let pile_h = ground.surface(idx);
+        V2::new(x, 32.0 + (pile_h * 0.32).min(14.0))
     }
 
     pub fn write_sprites(&self, buffer: &mut [Sprite]) -> usize {
@@ -446,6 +587,67 @@ impl SnowSimulation {
         let mut count = 0;
         for (slot, sprite) in buffer.iter_mut().zip(flakes.chain(grains).chain(motes)) {
             *slot = sprite;
+            count += 1;
+        }
+        if self.corner_pumpkins {
+            let cur = self.air.cursor.unwrap_or(V2::new(self.width * 0.5, self.height * 0.5));
+            let left_pos = self.corner_pumpkin_position(true);
+            let right_pos = self.corner_pumpkin_position(false);
+            if count < buffer.len() {
+                let d_left = cur - left_pos;
+                let len_l = d_left.length().max(1.0);
+                buffer[count] = Sprite {
+                    position: left_pos,
+                    velocity: d_left / len_l,
+                    size: 62.0,
+                    alpha: 0.98,
+                    soft: 0.1,
+                    tint_amount: self.air.left_pumpkin_excitement,
+                    tint: [1.0, 0.85, 0.30],
+                    lump: 3.0,
+                };
+                count += 1;
+            }
+            if count < buffer.len() {
+                let d_right = cur - right_pos;
+                let len_r = d_right.length().max(1.0);
+                buffer[count] = Sprite {
+                    position: right_pos,
+                    velocity: d_right / len_r,
+                    size: 62.0,
+                    alpha: 0.98,
+                    soft: 0.1,
+                    tint_amount: self.air.right_pumpkin_excitement,
+                    tint: [1.0, 0.85, 0.30],
+                    lump: 4.0,
+                };
+                count += 1;
+            }
+        }
+        if self.cursor_tool != CursorTool::Lantern
+            && let Some(cur) = self.air.cursor
+            && self.air.clock - self.air.last_cursor_move < 0.45
+            && count < buffer.len()
+        {
+            let fade = (((0.45 - (self.air.clock - self.air.last_cursor_move)) / 0.25) as f32).clamp(0.0, 1.0);
+            let dir = V2::new(self.air.last_tool_angle.cos(), self.air.last_tool_angle.sin());
+            let (tool_lump, tool_size) = match self.cursor_tool {
+                CursorTool::Vacuum => (-3.0, 44.0),
+                CursorTool::Swiffer => (-4.0, 50.0),
+                CursorTool::Blower => (-5.0, 48.0),
+                CursorTool::Magnet => (-6.0, 54.0),
+                CursorTool::Lantern => (0.0, 0.0),
+            };
+            buffer[count] = Sprite {
+                position: cur,
+                velocity: dir,
+                size: tool_size,
+                alpha: 0.88 * fade,
+                soft: 0.2,
+                tint_amount: 0.0,
+                tint: [1.0, 1.0, 1.0],
+                lump: tool_lump,
+            };
             count += 1;
         }
         count
@@ -614,6 +816,14 @@ impl SnowSimulation {
         let Some(previous) = self.air.cursor.replace(center) else { return };
 
         let delta = center - previous;
+        let distance = delta.length();
+        let cursor_moved = distance > 0.5;
+        if cursor_moved {
+            self.air.last_cursor_move = self.air.clock;
+            if distance > 1.5 {
+                self.air.last_tool_angle = delta.y.atan2(delta.x);
+            }
+        }
         let mut velocity = delta / dt.max(1.0 / 240.0);
         let speed = velocity.length();
         if speed > 3000.0 {
@@ -621,10 +831,52 @@ impl SnowSimulation {
         }
         self.air.cursor_velocity += (velocity - self.air.cursor_velocity) * 0.5;
 
-        let low = center.y.min(previous.y) - CURSOR_RADIUS;
-        let high = center.y.max(previous.y) + CURSOR_RADIUS;
-        let left = center.x.min(previous.x) - CURSOR_RADIUS;
-        let right = center.x.max(previous.x) + CURSOR_RADIUS;
+        // Corner Jack-o'-lantern interactions
+        self.air.left_pumpkin_excitement *= (-dt * 2.4).exp();
+        self.air.right_pumpkin_excitement *= (-dt * 2.4).exp();
+        if self.corner_pumpkins && cursor_moved {
+            let left_pos = self.corner_pumpkin_position(true);
+            let right_pos = self.corner_pumpkin_position(false);
+            if (center - left_pos).length() < 46.0 && self.air.clock - self.air.last_left_pumpkin_touch > 1.1 {
+                self.air.last_left_pumpkin_touch = self.air.clock;
+                self.air.left_pumpkin_excitement = 1.0;
+                self.trigger_corner_pumpkin_burst(left_pos);
+            }
+            if (center - right_pos).length() < 46.0 && self.air.clock - self.air.last_right_pumpkin_touch > 1.1 {
+                self.air.last_right_pumpkin_touch = self.air.clock;
+                self.air.right_pumpkin_excitement = 1.0;
+                self.trigger_corner_pumpkin_burst(right_pos);
+            }
+        }
+
+        if cursor_moved
+            && (self.has_golden_cursor_trail || self.cursor_tool == CursorTool::Magnet)
+            && self.air.motes.len() < MAX_MOTES
+            && self.air.random.next() < 0.55
+        {
+            let r = &mut self.air.random;
+            self.air.motes.push(Mote {
+                position: center + V2::new(r.range(-6.0, 6.0), r.range(-6.0, 6.0)),
+                velocity: V2::new(r.range(-25.0, 25.0), r.range(15.0, 55.0)) - self.air.cursor_velocity * 0.08,
+                size: r.range(4.0, 8.2),
+                alpha: r.range(0.75, 0.98),
+                age: 0.0,
+                life: r.range(0.45, 0.95),
+                tint: [1.0, r.range(0.82, 0.96), r.range(0.18, 0.42)],
+            });
+        }
+
+        let active_radius = match self.cursor_tool {
+            CursorTool::Lantern => CURSOR_RADIUS,
+            CursorTool::Vacuum => 32.0,
+            CursorTool::Swiffer => 44.0,
+            CursorTool::Blower => 34.0,
+            CursorTool::Magnet => 24.0,
+        };
+        let low = center.y.min(previous.y) - active_radius;
+        let high = center.y.max(previous.y) + active_radius;
+        let left = center.x.min(previous.x) - active_radius;
+        let right = center.x.max(previous.x) + active_radius;
         let touched: Vec<usize> = (0..self.layers.len())
             .filter(|&li| {
                 let layer = &self.layers[li];
@@ -640,19 +892,59 @@ impl SnowSimulation {
             return;
         }
 
-        let distance = delta.length();
         if distance > 400.0 {
             for &li in &touched {
                 self.air.carve(&mut self.layers[li], li, center, V2::ZERO, 0.0, true);
             }
             return;
         }
-        let steps = (distance / (CURSOR_RADIUS * 0.5)) as usize + 1;
+        let steps = (distance / (active_radius * 0.5)) as usize + 1;
         for step in 1..=steps {
             let position = previous + delta * (step as f32 / steps as f32);
             for &li in &touched {
                 self.air.carve(&mut self.layers[li], li, position, velocity, distance / steps as f32, step == steps);
             }
+        }
+    }
+
+    fn trigger_corner_pumpkin_burst(&mut self, pos: V2) {
+        self.air.events.pumpkins_touched += 1;
+        let count = MAX_MOTES.saturating_sub(self.air.motes.len()).min(18);
+        for _ in 0..count {
+            let r = &mut self.air.random;
+            let angle = r.range(0.2, PI - 0.2);
+            let speed = r.range(60.0, 210.0);
+            self.air.motes.push(Mote {
+                position: pos + V2::new(r.range(-14.0, 14.0), r.range(6.0, 22.0)),
+                velocity: V2::new(angle.cos() * speed, angle.sin() * speed + 40.0),
+                size: r.range(4.5, 9.0),
+                alpha: r.range(0.55, 0.95),
+                age: 0.0,
+                life: r.range(0.65, 1.3),
+                tint: [1.0, r.range(0.45, 0.78), 0.16],
+            });
+        }
+        if self.air.flakes.len() < self.target_flakes + 35 {
+            let r = &mut self.air.random;
+            let is_blood_moon = r.next() < 0.18;
+            self.air.flakes.push(Flake {
+                position: pos + V2::new(r.range(-10.0, 10.0), 36.0),
+                velocity: V2::new(r.range(-90.0, 90.0), r.range(135.0, 225.0)),
+                fall_speed: 30.0,
+                size: if is_blood_moon { 16.5 } else { 14.5 },
+                depth: 0.95,
+                alpha: 0.99,
+                soft: 0.12,
+                phase: r.range(0.0, PHASE_WRAP),
+                sway_rate: 1.2,
+                sway_amount: 20.0,
+                settles: true,
+                mass: 1.0,
+                tint: if is_blood_moon { [1.0, 0.28, 0.22] } else { [1.0, 0.88, 0.22] },
+                tint_amount: 1.0,
+                lump: (if is_blood_moon { -2.0 } else { -1.0 }) - r.range(0.05, 0.95),
+                blown: 0.0,
+            });
         }
     }
 
@@ -662,39 +954,86 @@ impl SnowSimulation {
         let wind = self.air.breeze();
         let follow = (dt * 1.2).min(1.0);
         let settle = (dt * 1.6).min(1.0);
-        let wake_radius: f32 = 80.0;
+        let tool = self.cursor_tool;
+        let wake_radius: f32 = match tool {
+            CursorTool::Lantern => 80.0,
+            CursorTool::Vacuum => 190.0,
+            CursorTool::Swiffer => 110.0,
+            CursorTool::Blower => 240.0,
+            CursorTool::Magnet => 370.0,
+        };
         let mut wake_velocity = self.air.cursor_velocity;
         let wake_speed = wake_velocity.length();
         if wake_speed > 500.0 {
             wake_velocity *= 500.0 / wake_speed;
         }
         let wake_center = self.air.cursor.unwrap_or(V2::new(-10_000.0, -10_000.0));
-        let wake_active = wake_speed > 20.0;
+        let wake_active = wake_speed > 20.0
+            || ((tool == CursorTool::Vacuum || tool == CursorTool::Magnet) && self.air.clock - self.air.last_cursor_move < 0.40);
+        let catch_radius_sq: f32 = match tool {
+            CursorTool::Magnet => 66.0 * 66.0,
+            CursorTool::Vacuum | CursorTool::Swiffer => 58.0 * 58.0,
+            CursorTool::Lantern | CursorTool::Blower => 46.0 * 46.0,
+        };
 
         let mut i = self.air.flakes.len();
         while i > 0 {
             i -= 1;
             let mut flake = self.air.flakes[i];
-            let dist_sq_cursor = (flake.position - wake_center).length_squared();
-            if flake.lump < -1.0 && dist_sq_cursor < 38.0 * 38.0 {
-                // Caught a rare 24k Golden Leaf!
-                let sparkle_count = MAX_MOTES.saturating_sub(self.air.motes.len()).min(16);
+            let diff_to_cursor = flake.position - wake_center;
+            let dist_sq_cursor = diff_to_cursor.length_squared();
+            if flake.lump < -1.0 && dist_sq_cursor < catch_radius_sq {
+                // Caught a rare 24k Golden Leaf or Blood-Moon Jackpot Leaf!
+                let is_blood_moon = flake.lump <= -2.0;
+                if is_blood_moon {
+                    self.air.events.blood_moon_caught += 1;
+                } else {
+                    self.air.events.golden_caught += 1;
+                }
+                let sparkle_count = MAX_MOTES.saturating_sub(self.air.motes.len()).min(if is_blood_moon { 32 } else { 24 });
                 for k in 0..sparkle_count {
-                    let angle = (k as f32 / sparkle_count as f32) * TAU + self.air.random.range(-0.15, 0.15);
-                    let speed = self.air.random.range(45.0, 160.0);
+                    let angle = (k as f32 / sparkle_count.max(1) as f32) * TAU + self.air.random.range(-0.15, 0.15);
+                    let speed = self.air.random.range(60.0, if is_blood_moon { 240.0 } else { 195.0 });
+                    let tint = if k % 3 == 0 {
+                        [1.0, 0.98, 0.86]
+                    } else if is_blood_moon && k % 2 == 0 {
+                        [1.0, self.air.random.range(0.20, 0.42), 0.25]
+                    } else {
+                        [1.0, self.air.random.range(0.84, 0.96), 0.22]
+                    };
                     self.air.motes.push(Mote {
-                        position: flake.position + V2::new(self.air.random.range(-4.0, 4.0), self.air.random.range(-4.0, 4.0)),
-                        velocity: V2::new(angle.cos() * speed, angle.sin() * speed + 35.0),
-                        size: self.air.random.range(4.5, 9.0),
-                        alpha: self.air.random.range(0.75, 1.0),
+                        position: flake.position + V2::new(self.air.random.range(-5.0, 5.0), self.air.random.range(-5.0, 5.0)),
+                        velocity: V2::new(angle.cos() * speed, angle.sin() * speed + 45.0),
+                        size: self.air.random.range(5.5, 11.5),
+                        alpha: self.air.random.range(0.82, 1.0),
                         age: 0.0,
-                        life: self.air.random.range(0.65, 1.2),
-                        tint: [1.0, self.air.random.range(0.82, 0.96), 0.22],
+                        life: self.air.random.range(0.75, 1.45),
+                        tint,
                     });
                 }
                 self.recycle(i);
                 continue;
             }
+
+            // Shimmering comet trail of gold/crimson sparkles behind falling Golden Leaves
+            if flake.lump < -1.0 && self.air.motes.len() < MAX_MOTES && self.air.random.next() < 0.24 {
+                let is_blood_moon = flake.lump <= -2.0;
+                let r = &mut self.air.random;
+                self.air.motes.push(Mote {
+                    position: flake.position + V2::new(r.range(-4.0, 4.0), r.range(2.0, 8.0)),
+                    velocity: V2::new(r.range(-18.0, 18.0), r.range(12.0, 38.0)),
+                    size: r.range(3.5, 6.8),
+                    alpha: r.range(0.65, 0.95),
+                    age: 0.0,
+                    life: r.range(0.35, 0.70),
+                    tint: if is_blood_moon {
+                        [1.0, r.range(0.25, 0.55), 0.22]
+                    } else {
+                        [1.0, r.range(0.84, 0.96), 0.25]
+                    },
+                });
+            }
+
             if flake.blown != 0.0 {
                 // The nearer the flake, the faster the gust seems to carry it.
                 flake.velocity.x += (flake.blown * GUST_WIND * (1.3 + 1.3 * flake.depth) - flake.velocity.x) * (dt * 2.5).min(1.0);
@@ -703,11 +1042,57 @@ impl SnowSimulation {
             }
             flake.velocity.y += (-flake.fall_speed - flake.velocity.y) * settle;
 
-            if wake_active {
-                let distance_squared = (flake.position - wake_center).length_squared();
-                if distance_squared < wake_radius * wake_radius {
-                    let falloff = 1.0 - distance_squared.sqrt() / wake_radius;
-                    flake.velocity += (wake_velocity - flake.velocity) * (falloff * falloff * 4.0 * dt).min(1.0);
+            if wake_active && dist_sq_cursor < wake_radius * wake_radius {
+                let dist = dist_sq_cursor.sqrt().max(1.0);
+                let falloff = 1.0 - dist / wake_radius;
+                match tool {
+                    CursorTool::Vacuum => {
+                        if dist < 24.0 {
+                            self.air.events.vacuumed += 1;
+                            if self.air.motes.len() < MAX_MOTES && self.air.random.next() < 0.35 {
+                                let r = &mut self.air.random;
+                                self.air.motes.push(Mote {
+                                    position: flake.position,
+                                    velocity: V2::new(r.range(-40.0, 40.0), r.range(-40.0, 40.0)),
+                                    size: 3.8,
+                                    alpha: 0.65,
+                                    age: 0.0,
+                                    life: 0.20,
+                                    tint: [0.45, 0.95, 1.0],
+                                });
+                            }
+                            self.recycle(i);
+                            continue;
+                        }
+                        let radial = -diff_to_cursor / dist;
+                        let tangent = V2::new(-radial.y, radial.x);
+                        let pull_target = radial * (420.0 + 380.0 * falloff) + tangent * (280.0 * falloff);
+                        flake.velocity += (pull_target - flake.velocity) * ((0.35 + falloff * 0.65) * 9.0 * dt).min(1.0);
+                    }
+                    CursorTool::Magnet => {
+                        let radial = -diff_to_cursor / dist;
+                        let tangent = V2::new(-radial.y, radial.x);
+                        if flake.lump < -1.0 || flake.lump >= 2.0 {
+                            let pull_target = radial * (580.0 + 520.0 * falloff) + tangent * (160.0 * falloff);
+                            flake.velocity += (pull_target - flake.velocity) * ((0.45 + falloff * 0.55) * 12.0 * dt).min(1.0);
+                        } else {
+                            flake.velocity += (wake_velocity * 0.45 + tangent * (110.0 * falloff) - flake.velocity) * (falloff * 3.0 * dt).min(1.0);
+                        }
+                    }
+                    CursorTool::Blower => {
+                        let outward = diff_to_cursor / dist;
+                        let blast = outward * (620.0 * falloff) + wake_velocity * 1.45;
+                        flake.velocity += (blast - flake.velocity) * (falloff * 8.0 * dt).min(1.0);
+                        if falloff > 0.35 && self.air.random.next() < 0.14 {
+                            self.air.events.blown += 1;
+                        }
+                    }
+                    CursorTool::Lantern | CursorTool::Swiffer => {
+                        flake.velocity += (wake_velocity - flake.velocity) * (falloff * falloff * 4.0 * dt).min(1.0);
+                        if wake_speed > 60.0 {
+                            self.air.events.first_rustle = true;
+                        }
+                    }
                 }
             }
 
@@ -745,6 +1130,8 @@ impl SnowSimulation {
                     let layer = &mut self.layers[li];
                     let effective_size = if flake.lump >= 2.0 {
                         flake.size * 0.55
+                    } else if flake.lump < -1.0 {
+                        flake.size * 0.42
                     } else if flake.lump < 0.0 {
                         flake.size * 0.68
                     } else {
@@ -1202,6 +1589,7 @@ impl Air {
     /// as a lump, the rest pours off as powder.
     fn shed(&mut self, ledge: &mut SnowLayer, share: f32, velocity: V2) {
         let mut start = 0;
+        let mut total_shed_area = 0.0;
         while start < ledge.count() {
             let end = ledge.count().min(start + self.random.range(2.0, 7.0) as usize);
             let mut area = 0.0;
@@ -1216,6 +1604,7 @@ impl Air {
                 lowest = lowest.min(ledge.floor(i) + h * (1.0 - share));
                 highest = highest.max(ledge.floor(i) + h);
             }
+            total_shed_area += area;
             let cohesion = if area > 14.0 { self.random.range(0.4, 0.7) } else { 0.0 };
             for i in start..end {
                 let h = ledge.heights[i];
@@ -1233,6 +1622,9 @@ impl Air {
                 self.throw_lump(area * cohesion, V2::new((left + right) / 2.0, (lowest + highest) / 2.0), velocity);
             }
             start = end;
+        }
+        if total_shed_area > 1.0 {
+            self.events.window_shed += (total_shed_area * 0.22) as u32;
         }
         self.heights_changed = true;
     }
@@ -1265,6 +1657,9 @@ impl Air {
     fn burst(&mut self, lump: &Grain, layer: &mut SnowLayer) {
         let impact = (-lump.velocity.y).max(0.0);
         let force = (impact / 900.0).clamp(0.35, 1.3);
+        if lump.lump >= 2.0 {
+            self.events.pumpkins_touched += 1;
+        }
         let crumbs = lump.area * 0.18;
         for spot in [-0.3, 0.0, 0.3] {
             let x = lump.position.x + spot * lump.size;
@@ -1336,7 +1731,14 @@ impl Air {
     }
 
     fn carve(&mut self, layer: &mut SnowLayer, li: usize, center: V2, velocity: V2, travel: f32, last: bool) {
-        let radius = CURSOR_RADIUS;
+        let tool = self.cursor_tool;
+        let radius = match tool {
+            CursorTool::Lantern => CURSOR_RADIUS,
+            CursorTool::Vacuum => 32.0,
+            CursorTool::Swiffer => 44.0,
+            CursorTool::Blower => 34.0,
+            CursorTool::Magnet => 24.0,
+        };
         let base = layer.base();
         let lower = (((center.x - radius - base.x) / COLUMN_WIDTH).floor() as i64).max(0);
         let upper = (((center.x + radius - base.x) / COLUMN_WIDTH).floor() as i64).min(layer.count() as i64 - 1);
@@ -1345,9 +1747,15 @@ impl Air {
         }
 
         let local = center.y - base.y;
-        let spray_share = smoothstep(60.0, 420.0, velocity.length());
+        let speed = velocity.length();
+        let spray_share = match tool {
+            CursorTool::Lantern | CursorTool::Magnet => smoothstep(60.0, 420.0, speed),
+            CursorTool::Vacuum | CursorTool::Swiffer => 0.0,
+            CursorTool::Blower => (0.45 + 0.50 * smoothstep(20.0, 350.0, speed)).min(0.92),
+        };
         let mut pushed_left = 0.0;
         let mut pushed_right = 0.0;
+        let mut total_removed = 0.0;
 
         for i in lower as usize..=upper as usize {
             if !layer.visible[i] {
@@ -1387,15 +1795,69 @@ impl Air {
             layer.set(i, h - removed);
             self.last_cursor_push = self.clock;
             self.heights_changed = true;
+            total_removed += removed;
 
             let area = removed * COLUMN_WIDTH;
             let surface = layer.floor(i) + if buried { h - removed } else { h };
-            let sprayed = if spray_share > 0.0 { self.emit(area * spray_share, V2::new(x, surface), center, velocity) } else { 0.0 };
-            let side = if velocity.x.abs() > 40.0 { velocity.x } else { dx };
-            if side < 0.0 {
-                pushed_left += area - sprayed;
+            if tool == CursorTool::Vacuum {
+                if self.random.next() < 0.25 && self.motes.len() < MAX_MOTES {
+                    let pull = center - V2::new(x, surface);
+                    let r = &mut self.random;
+                    self.motes.push(Mote {
+                        position: V2::new(x, surface),
+                        velocity: pull * 6.5 + V2::new(-pull.y, pull.x) * 3.0,
+                        size: r.range(3.0, 6.0),
+                        alpha: 0.65,
+                        age: 0.0,
+                        life: 0.22,
+                        tint: [0.45, 0.95, 1.0],
+                    });
+                }
+            } else if tool == CursorTool::Swiffer {
+                if self.random.next() < 0.22 && self.motes.len() < MAX_MOTES {
+                    let r = &mut self.random;
+                    self.motes.push(Mote {
+                        position: V2::new(x, surface + 2.0),
+                        velocity: V2::new(r.range(-25.0, 25.0), r.range(25.0, 75.0)),
+                        size: r.range(3.2, 6.2),
+                        alpha: 0.72,
+                        age: 0.0,
+                        life: r.range(0.35, 0.65),
+                        tint: [0.55, 0.98, 0.75],
+                    });
+                }
+                let side = if velocity.x.abs() > 40.0 { velocity.x } else { dx };
+                if side < 0.0 {
+                    pushed_left += area * 0.12;
+                } else {
+                    pushed_right += area * 0.12;
+                }
             } else {
-                pushed_right += area - sprayed;
+                let boost_vel = if tool == CursorTool::Blower {
+                    velocity * 1.65 + V2::new(dx * 8.0, 160.0)
+                } else {
+                    velocity
+                };
+                let sprayed = if spray_share > 0.0 { self.emit(area * spray_share, V2::new(x, surface), center, boost_vel) } else { 0.0 };
+                let side = if velocity.x.abs() > 40.0 { velocity.x } else { dx };
+                if side < 0.0 {
+                    pushed_left += area - sprayed;
+                } else {
+                    pushed_right += area - sprayed;
+                }
+            }
+        }
+
+        if total_removed > 0.05 {
+            self.events.first_rustle = true;
+            if last {
+                let units = ((total_removed * 0.45) as u32).max(1);
+                match tool {
+                    CursorTool::Vacuum => self.events.vacuumed += units,
+                    CursorTool::Swiffer => self.events.swept += units,
+                    CursorTool::Blower => self.events.blown += units,
+                    CursorTool::Lantern | CursorTool::Magnet => {}
+                }
             }
         }
 
@@ -1462,19 +1924,21 @@ impl Air {
 
     fn make_flake(&mut self, width: f32, y: f32) -> Flake {
         let wind = self.wind_speed();
+        let golden_mult = self.golden_spawn_multiplier.max(1.0);
         let random = &mut self.random;
         let near = random.next() < 0.025;
         let depth = if near { 1.0 } else { random.next().powf(1.5) };
         let kind_roll = random.next();
-        // ~3% 24k Golden Leaf, ~65% autumn leaves, ~25% glowing embers & spectral dust, ~7% mini Jack-o'-lantern pumpkins
-        let is_golden_leaf = !near && kind_roll < 0.03;
+        let golden_chance = 0.038 * golden_mult;
+        let is_golden_leaf = !near && kind_roll < golden_chance;
+        let is_blood_moon = is_golden_leaf && random.next() < 0.16;
         let is_pumpkin = !near && !is_golden_leaf && kind_roll > 0.93 && depth > 0.25;
         let is_ember = !is_golden_leaf && !is_pumpkin && (kind_roll > 0.68 || near);
 
         let fall_speed = if near {
             random.range(70.0, 95.0)
         } else if is_golden_leaf {
-            24.0 + depth * 38.0 + random.range(0.0, 10.0)
+            20.0 + depth * 32.0 + random.range(0.0, 8.0)
         } else if is_pumpkin {
             34.0 + depth * 64.0 + random.range(0.0, 14.0)
         } else if is_ember {
@@ -1486,17 +1950,19 @@ impl Air {
         let size = if near {
             random.range(9.0, 14.0)
         } else if is_golden_leaf {
-            6.8 + depth * 5.2
+            (if is_blood_moon { 14.5 } else { 12.5 }) + depth * 8.0
         } else if is_pumpkin {
-            5.2 + depth * 4.2 + random.range(0.0, 1.5)
+            6.2 + depth * 4.8 + random.range(0.0, 1.5)
         } else if is_ember {
             1.3 + depth * 2.8 + random.range(0.0, 0.8)
         } else {
             2.6 + depth * 4.4 + random.range(0.0, 1.2)
         };
 
-        let tint = if is_golden_leaf {
-            [1.0, 0.86, 0.20]
+        let tint = if is_blood_moon {
+            [1.0, 0.28, 0.22]
+        } else if is_golden_leaf {
+            [1.0, 0.88, 0.22]
         } else if is_pumpkin {
             [0.98, random.range(0.42, 0.56), random.range(0.05, 0.14)]
         } else if is_ember {
@@ -1511,7 +1977,9 @@ impl Air {
             random_autumn_tint(random)
         };
 
-        let lump = if is_golden_leaf {
+        let lump = if is_blood_moon {
+            -2.0 - random.range(0.05, 0.95)
+        } else if is_golden_leaf {
             -1.0 - random.range(0.05, 0.95)
         } else if is_pumpkin {
             2.0 + random.range(0.05, 0.95)
@@ -1527,12 +1995,14 @@ impl Air {
             fall_speed,
             size,
             depth,
-            alpha: if near { 0.35 } else if is_pumpkin { 0.96 } else { 0.62 + depth * 0.36 },
-            soft: if near { 0.95 } else if is_ember { 0.85 } else { 0.45 - depth * 0.25 },
+            alpha: if is_golden_leaf { 0.98 } else if near { 0.35 } else if is_pumpkin { 0.96 } else { 0.62 + depth * 0.36 },
+            soft: if is_golden_leaf { 0.12 } else if near { 0.95 } else if is_ember { 0.85 } else { 0.45 - depth * 0.25 },
             phase: random.range(0.0, PHASE_WRAP),
             sway_rate: if is_pumpkin { random.range(0.35, 0.8) } else { random.range(0.6, 1.65) },
             sway_amount: if near {
                 random.range(12.0, 22.0)
+            } else if is_golden_leaf {
+                random.range(16.0, 26.0) + depth * 12.0
             } else if is_pumpkin {
                 random.range(2.0, 5.0)
             } else {

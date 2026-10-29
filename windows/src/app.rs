@@ -20,25 +20,28 @@ use windows::Win32::UI::WindowsAndMessaging::*;
 use windows::core::{PCWSTR, Result, w};
 
 use crate::log;
-use crate::prefs::{self, Settings};
-use crate::snow::{self, Command, Links};
+use crate::prefs::{self, Settings, TROPHIES, Trophies};
+use crate::snow::{self, Command, Links, WM_TROPHY};
 use crate::update::{self, Release};
 use crate::welcome::{self, Handlers};
-use snowhush_core::simulation::Snowfall;
+use snowhush_core::simulation::{CursorTool, Snowfall};
 
 const CLASS: PCWSTR = w!("SpookhushController");
 const WM_TRAY: u32 = WM_APP + 1;
 const NIN_KEYSELECT: u32 = NIN_SELECT | 1;
 const ID_SNOWFALL: u32 = 100;
+const ID_CURSOR_TOOL: u32 = 120;
 const ID_ACCUMULATE: u32 = 200;
 const ID_MELT: u32 = 201;
 const ID_SCREENSHOTS: u32 = 202;
 const ID_LOGIN: u32 = 203;
 const ID_WINDOWS: u32 = 204;
 const ID_BEHIND: u32 = 205;
-const ID_QUIT: u32 = 299;
 const ID_UPDATES: u32 = 206;
 const ID_CLEAR: u32 = 207;
+const ID_CORNER_PUMPKINS: u32 = 208;
+const ID_TROPHIES: u32 = 209;
+const ID_QUIT: u32 = 299;
 const TIMER_WELCOME: usize = 1;
 const TIMER_UPDATES: usize = 2;
 const WM_UPDATE: u32 = WM_APP + 2;
@@ -153,6 +156,23 @@ unsafe extern "system" fn procedure(window: HWND, message: u32, wparam: WPARAM, 
             updated(window, *result, wparam.0 != 0);
             LRESULT(0)
         }
+        WM_TROPHY => {
+            if wparam.0 == 100 {
+                let combo = lparam.0;
+                notify(
+                    window,
+                    &format!("🔥 GOLDEN FEVER! ({combo}x Combo)"),
+                    "4.5x Golden Leaf spawn rate & 24k Cursor Trail active for 20s!",
+                );
+            } else if let Some(trophy) = TROPHIES.get(wparam.0) {
+                notify(
+                    window,
+                    &format!("🏆 TROPHY UNLOCKED: {} {}", trophy.icon, trophy.title),
+                    &format!("{} — Reward: {}", trophy.description, trophy.reward),
+                );
+            }
+            LRESULT(0)
+        }
         WM_TIMER if wparam.0 == TIMER_WELCOME => {
             unsafe {
                 let _ = KillTimer(Some(window), TIMER_WELCOME);
@@ -226,13 +246,26 @@ fn show_menu(window: HWND, x: i32, y: i32) {
         let _ = CheckMenuRadioItem(snowfall, ID_SNOWFALL, ID_SNOWFALL + 4, ID_SNOWFALL + current, MF_BYCOMMAND.0);
         let checked = |on: bool| if on { MF_CHECKED } else { MF_UNCHECKED };
         let _ = AppendMenuW(menu, MF_POPUP, snowfall.0 as usize, w!("Autumn Fall"));
+
+        let Ok(tools) = CreatePopupMenu() else { return };
+        for (i, option) in CursorTool::ALL.iter().enumerate() {
+            let title: Vec<u16> = option.title().encode_utf16().chain([0]).collect();
+            let _ = AppendMenuW(tools, MF_STRING, (ID_CURSOR_TOOL + i as u32) as usize, PCWSTR(title.as_ptr()));
+        }
+        let current_tool = CursorTool::ALL.iter().position(|&t| t == settings.cursor_tool).unwrap_or(0) as u32;
+        let _ = CheckMenuRadioItem(tools, ID_CURSOR_TOOL, ID_CURSOR_TOOL + 4, ID_CURSOR_TOOL + current_tool, MF_BYCOMMAND.0);
+        let _ = AppendMenuW(menu, MF_POPUP, tools.0 as usize, w!("Cursor Tool"));
+
         let _ = AppendMenuW(menu, MF_SEPARATOR, 0, PCWSTR::null());
         let _ = AppendMenuW(menu, MF_STRING | checked(settings.accumulate), ID_ACCUMULATE as usize, w!("Accumulate"));
         let melt = MF_STRING | checked(settings.melt) | if settings.accumulate { MF_ENABLED } else { MF_GRAYED };
         let _ = AppendMenuW(menu, melt, ID_MELT as usize, w!("Fade Leaves"));
         let windows = MF_STRING | checked(settings.snow_on_windows) | if settings.behind_windows { MF_GRAYED } else { MF_ENABLED };
         let _ = AppendMenuW(menu, windows, ID_WINDOWS as usize, w!("Leaves on Windows"));
+        let _ = AppendMenuW(menu, MF_STRING | checked(settings.corner_pumpkins), ID_CORNER_PUMPKINS as usize, w!("Corner Jack-o'-Lanterns"));
         let _ = AppendMenuW(menu, MF_STRING, ID_CLEAR as usize, w!("Clear Leaves"));
+        let _ = AppendMenuW(menu, MF_SEPARATOR, 0, PCWSTR::null());
+        let _ = AppendMenuW(menu, MF_STRING, ID_TROPHIES as usize, w!("🏆 Trophies & Golden Leaves…"));
         let _ = AppendMenuW(menu, MF_SEPARATOR, 0, PCWSTR::null());
         let _ = AppendMenuW(menu, MF_STRING | checked(settings.behind_windows), ID_BEHIND as usize, w!("Behind Windows"));
         let _ = AppendMenuW(menu, MF_STRING | checked(settings.show_in_screenshots), ID_SCREENSHOTS as usize, w!("Show in Screenshots"));
@@ -261,6 +294,21 @@ fn choose(window: HWND, chosen: u32, login: bool) {
                 send(app, Command::ClearSnow(!prefs::animations_enabled()));
             }
         }),
+        ID_TROPHIES => {
+            APP.with_borrow(|app| {
+                if let Some(app) = app {
+                    send(app, Command::TrophyCelebration);
+                }
+            });
+            let trophies = Trophies::load();
+            let unlocked_count = (0..16).filter(|&b| trophies.is_unlocked(b)).count();
+            notify(
+                window,
+                &format!("🏆 Spookhush Trophies ({unlocked_count}/16)"),
+                &format!("Golden Leaves caught: {} | Best Combo: {}x", trophies.golden_leaves, trophies.best_combo),
+            );
+            message(window, &trophies.summary_text(), MB_OK | MB_ICONINFORMATION);
+        }
         ID_LOGIN => {
             let status = prefs::set_opens_at_login(!login);
             log!("open at login {}: {status:?}", !login);
@@ -281,6 +329,10 @@ fn choose(window: HWND, chosen: u32, login: bool) {
                     settings.snow_on_windows = !settings.snow_on_windows;
                     Command::SnowOnWindows(settings.snow_on_windows)
                 }
+                ID_CORNER_PUMPKINS => {
+                    settings.corner_pumpkins = !settings.corner_pumpkins;
+                    Command::CornerPumpkins(settings.corner_pumpkins)
+                }
                 ID_BEHIND => {
                     settings.behind_windows = !settings.behind_windows;
                     Command::BehindWindows(settings.behind_windows)
@@ -288,6 +340,11 @@ fn choose(window: HWND, chosen: u32, login: bool) {
                 ID_SCREENSHOTS => {
                     settings.show_in_screenshots = !settings.show_in_screenshots;
                     Command::ShowInScreenshots(settings.show_in_screenshots)
+                }
+                id if (ID_CURSOR_TOOL..ID_CURSOR_TOOL + 10).contains(&id) => {
+                    let Some(&tool) = CursorTool::ALL.get((id - ID_CURSOR_TOOL) as usize) else { return };
+                    settings.cursor_tool = tool;
+                    Command::CursorTool(tool)
                 }
                 _ => {
                     let Some(&snowfall) = Snowfall::ALL.get(chosen.wrapping_sub(ID_SNOWFALL) as usize) else { return };
@@ -317,7 +374,7 @@ fn updated(window: HWND, result: std::result::Result<Option<Release>, String>, a
     let current = env!("CARGO_PKG_VERSION");
     match result {
         Ok(Some(release)) if asked => {
-            let text = format!("Snowhush {} is available. You have {current}.\n\nDownload it now?", release.version);
+            let text = format!("Spookhush {} is available. You have {current}.\n\nDownload it now?", release.version);
             if message(window, &text, MB_YESNO | MB_ICONINFORMATION) == IDYES {
                 update::open(&release.url);
             }
@@ -328,11 +385,11 @@ fn updated(window: HWND, result: std::result::Result<Option<Release>, String>, a
                 (app.update.as_deref() != Some(&release.url)).then(|| app.update = Some(release.url.clone()))
             });
             if fresh.is_some() {
-                notify(window, &format!("Snowhush {} is available", release.version), "Click to download it.");
+                notify(window, &format!("Spookhush {} is available", release.version), "Click to download it.");
             }
         }
         Ok(None) if asked => {
-            message(window, &format!("You're up to date.\n\nSnowhush {current} is the latest version."), MB_OK | MB_ICONINFORMATION);
+            message(window, &format!("You're up to date.\n\nSpookhush {current} is the latest version."), MB_OK | MB_ICONINFORMATION);
         }
         Ok(None) => {}
         Err(error) => {
@@ -346,7 +403,7 @@ fn updated(window: HWND, result: std::result::Result<Option<Release>, String>, a
 
 fn message(window: HWND, text: &str, style: MESSAGEBOX_STYLE) -> MESSAGEBOX_RESULT {
     let text: Vec<u16> = text.encode_utf16().chain([0]).collect();
-    unsafe { MessageBoxW(Some(window), PCWSTR(text.as_ptr()), w!("Snowhush"), style | MB_SETFOREGROUND | MB_TOPMOST) }
+    unsafe { MessageBoxW(Some(window), PCWSTR(text.as_ptr()), w!("Spookhush"), style | MB_SETFOREGROUND | MB_TOPMOST) }
 }
 
 /// A notification from the tray icon.

@@ -14,15 +14,17 @@ use windows::Win32::UI::WindowsAndMessaging::{
 use windows::core::{HSTRING, PCWSTR, Result, w};
 
 use snowhush_core::geometry::V2;
-use snowhush_core::simulation::{ScatterPiece, SnowSimulation, Snowfall};
+use snowhush_core::simulation::{CursorTool, ScatterPiece, SimulationEvents, SnowSimulation, Snowfall};
 
 use crate::desktop::{self, DesktopLayer};
 use crate::light::{Wallpapers, daylight};
 use crate::log;
-use crate::prefs::Settings;
+use crate::prefs::{Settings, Trophies};
 use crate::render::Gpu;
 use crate::screen::{BACKDROP_CHANGED, Clock, DISPLAYS_CHANGED, Monitor, PowerBudget, Screen, dip_size, listen, monitors, walls, watch_taskbar};
 use crate::tracker::Tracker;
+
+pub const WM_TROPHY: u32 = windows::Win32::UI::WindowsAndMessaging::WM_APP + 3;
 
 /// A piece of the welcome window crumbling into snow, in physical screen pixels.
 pub struct Piece {
@@ -34,6 +36,8 @@ pub struct Piece {
 
 pub enum Command {
     Snowfall(Snowfall),
+    CursorTool(CursorTool),
+    CornerPumpkins(bool),
     Accumulate(bool),
     Melt(bool),
     SnowOnWindows(bool),
@@ -48,6 +52,7 @@ pub enum Command {
     ReleaseSnowfall,
     /// Blows all the snow away; when calm, for less motion, melts it where it lies instead.
     ClearSnow(bool),
+    TrophyCelebration,
     Quit,
 }
 
@@ -92,6 +97,10 @@ fn run_loop(commands: &Receiver<Command>, links: &Links, mut settings: Settings)
     let mut desktop_logged = String::new();
     let mut stats = Stats::new(started);
     let mut tracker = Tracker::new();
+    let mut trophies = Trophies::load();
+    let mut last_golden_catch: i64 = 0;
+    let mut fever_until: i64 = 0;
+    let mut minute_at = started + clock.frequency * 60;
     watch_taskbar(links.wake);
 
     loop {
@@ -102,6 +111,17 @@ fn run_loop(commands: &Receiver<Command>, links: &Links, mut settings: Settings)
                 Command::Snowfall(snowfall) => {
                     settings.snowfall = snowfall;
                     screens.iter_mut().for_each(|screen| screen.simulation.set_snowfall(snowfall));
+                }
+                Command::CursorTool(tool) => {
+                    settings.cursor_tool = tool;
+                    screens.iter_mut().for_each(|screen| screen.simulation.cursor_tool = tool);
+                }
+                Command::CornerPumpkins(on) => {
+                    settings.corner_pumpkins = on;
+                    screens.iter_mut().for_each(|screen| screen.simulation.corner_pumpkins = on);
+                }
+                Command::TrophyCelebration => {
+                    screens.iter_mut().for_each(|screen| screen.simulation.trigger_trophy_celebration());
                 }
                 Command::Accumulate(on) => {
                     settings.accumulate = on;
@@ -243,9 +263,17 @@ fn run_loop(commands: &Receiver<Command>, links: &Links, mut settings: Settings)
             }
             let windows = (settings.snow_on_windows && !settings.behind_windows).then_some(&tracker);
             let time = (clock.seconds(now - started) % 1000.0) as f32;
+            let fever = now < fever_until;
+            let golden_mult = trophies.golden_spawn_multiplier(fever);
+            let golden_trail = trophies.has_golden_cursor_trail(fever);
             let mut lost = false;
             let mut released = false;
+            let mut total_events = SimulationEvents::default();
             for screen in screens.iter_mut().filter(|screen| screen.next_due <= now + clock.tolerance()) {
+                screen.simulation.cursor_tool = settings.cursor_tool;
+                screen.simulation.corner_pumpkins = settings.corner_pumpkins;
+                screen.simulation.golden_spawn_multiplier = golden_mult;
+                screen.simulation.has_golden_cursor_trail = golden_trail;
                 let covering = tracker.covering(&screen.monitor.bounds);
                 if covering.is_some() != screen.covered() {
                     log!("{} {}", screen.monitor.name, covering.map_or("uncovered".to_string(), |class| format!("covered by {class}")));
@@ -260,10 +288,47 @@ fn run_loop(commands: &Receiver<Command>, links: &Links, mut settings: Settings)
                     Ok(drew) => {
                         stats.frame(drew, Clock::now() - began, screen.simulation.sprite_count());
                         released |= screen.simulation.take_snowfall_released();
+                        let ev = screen.simulation.take_events();
+                        total_events.golden_caught += ev.golden_caught;
+                        total_events.blood_moon_caught += ev.blood_moon_caught;
+                        total_events.vacuumed += ev.vacuumed;
+                        total_events.swept += ev.swept;
+                        total_events.blown += ev.blown;
+                        total_events.pumpkins_touched += ev.pumpkins_touched;
+                        total_events.window_shed += ev.window_shed;
+                        total_events.first_rustle |= ev.first_rustle;
                     }
                     Err(error) => {
                         log!("frame failed: {error}");
                         lost = true;
+                    }
+                }
+            }
+            let add_minutes = if now >= minute_at {
+                minute_at = now + clock.frequency * 60;
+                1
+            } else {
+                0
+            };
+            if total_events.golden_caught > 0 || total_events.blood_moon_caught > 0 {
+                if last_golden_catch == 0 || clock.seconds(now - last_golden_catch) > 25.0 {
+                    trophies.current_combo = 0;
+                }
+                last_golden_catch = now;
+            }
+            let unlocked = trophies.apply_events(total_events, add_minutes);
+            if (total_events.golden_caught > 0 || total_events.blood_moon_caught > 0) && trophies.current_combo >= 5 && now >= fever_until {
+                fever_until = now + clock.frequency * 20;
+                screens.iter_mut().for_each(|screen| screen.simulation.trigger_trophy_celebration());
+                unsafe {
+                    let _ = PostMessageW(Some(HWND(links.controller as _)), WM_TROPHY, WPARAM(100), LPARAM(trophies.current_combo as isize));
+                }
+            }
+            if !unlocked.is_empty() {
+                screens.iter_mut().for_each(|screen| screen.simulation.trigger_trophy_celebration());
+                for trophy in unlocked {
+                    unsafe {
+                        let _ = PostMessageW(Some(HWND(links.controller as _)), WM_TROPHY, WPARAM(trophy.bit as usize), LPARAM(0));
                     }
                 }
             }
@@ -348,6 +413,8 @@ fn new_simulation(monitor: &Monitor, settings: &Settings) -> SnowSimulation {
     let mut simulation = SnowSimulation::new(width as f32, height as f32, settings.snowfall);
     simulation.thaws = settings.melt;
     simulation.accumulates = settings.accumulate;
+    simulation.cursor_tool = settings.cursor_tool;
+    simulation.corner_pumpkins = settings.corner_pumpkins;
     simulation.set_snowfall_held(!settings.welcomed);
     simulation
 }
