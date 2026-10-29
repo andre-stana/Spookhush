@@ -30,6 +30,7 @@ enum CursorTool: Int, CaseIterable {
     case vacuum = 1
     case swiffer = 2
     case blower = 3
+    case magnet = 4
 
     var title: String {
         switch self {
@@ -37,6 +38,7 @@ enum CursorTool: Int, CaseIterable {
         case .vacuum: "🌀 Ghost-Vac (Vacuum)"
         case .swiffer: "🧹 Witch Swiffer (Clean Sweep)"
         case .blower: "💨 Leaf Blower (Turbo Jet)"
+        case .magnet: "🧲 Golden Magnet (Gold Attractor)"
         }
     }
 
@@ -46,6 +48,7 @@ enum CursorTool: Int, CaseIterable {
         case .vacuum: "Ghost-Vac"
         case .swiffer: "Witch Swiffer"
         case .blower: "Leaf Blower"
+        case .magnet: "Golden Magnet"
         }
     }
 }
@@ -55,23 +58,40 @@ enum FlameTheme: Int, CaseIterable {
     case royalGold = 1
     case ectoplasmGreen = 2
     case spectralViolet = 3
+    case hellfireCrimson = 4
+    case frostbiteCyan = 5
+    case prismaticRainbow = 6
 
     var title: String {
         switch self {
-        case .classicAmber: "🔥 Classic Pumpkin Amber"
-        case .royalGold: "👑 Royal 24k Gold"
-        case .ectoplasmGreen: "👻 Ectoplasm Neon Green"
-        case .spectralViolet: "🔮 Spectral Witch Violet"
+        case .classicAmber: "🕯️ Amber"
+        case .royalGold: "👑 24k Gold"
+        case .ectoplasmGreen: "👻 Ectoplasm"
+        case .spectralViolet: "🔮 Spectral"
+        case .hellfireCrimson: "🔥 Hellfire"
+        case .frostbiteCyan: "❄️ Frostbite"
+        case .prismaticRainbow: "🌈 Prismatic"
+        }
+    }
+
+    func color(at time: Float = 0) -> SIMD3<Float> {
+        switch self {
+        case .classicAmber: return SIMD3(1.0, 0.54, 0.14)
+        case .royalGold: return SIMD3(1.0, 0.88, 0.22)
+        case .ectoplasmGreen: return SIMD3(0.22, 1.0, 0.48)
+        case .spectralViolet: return SIMD3(0.82, 0.32, 1.0)
+        case .hellfireCrimson: return SIMD3(1.0, 0.16, 0.22)
+        case .frostbiteCyan: return SIMD3(0.24, 0.90, 1.0)
+        case .prismaticRainbow:
+            let r = 0.65 + 0.35 * sin(time * 2.2)
+            let g = 0.65 + 0.35 * sin(time * 2.2 + 2.094)
+            let b = 0.65 + 0.35 * sin(time * 2.2 + 4.188)
+            return SIMD3(r, g, b)
         }
     }
 
     var color: SIMD3<Float> {
-        switch self {
-        case .classicAmber: SIMD3(1.0, 0.54, 0.14)
-        case .royalGold: SIMD3(1.0, 0.86, 0.24)
-        case .ectoplasmGreen: SIMD3(0.24, 1.0, 0.46)
-        case .spectralViolet: SIMD3(0.80, 0.34, 1.0)
-        }
+        color(at: Float(CACurrentMediaTime().truncatingRemainder(dividingBy: 100)))
     }
 }
 

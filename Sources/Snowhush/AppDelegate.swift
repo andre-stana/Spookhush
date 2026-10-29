@@ -59,6 +59,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, SPUSta
         cursorTool = Preferences.cursorTool
         soundEffects = Preferences.soundEffects
         SoundEngine.shared.isEnabled = soundEffects
+        AchievementsManager.shared.onTrophyCelebration = { [weak self] in
+            self?.screens.forEach { $0.simulation.triggerTrophyCelebration() }
+        }
         snowfallHeld = !Preferences.welcomed
         syncScreens()
         guard !screens.isEmpty else {

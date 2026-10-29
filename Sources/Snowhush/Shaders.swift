@@ -62,18 +62,18 @@ vertex SpriteOut spriteVertex(uint vid [[vertex_id]],
     bool isCornerPumpkin = s.lump >= 3.0;
     bool isTool = s.lump <= -3.0;
     bool isPumpkin = s.lump >= 2.0 && s.lump < 3.0;
-    bool isGoldenLeaf = s.lump < -1.0 && s.lump > -2.5;
+    bool isGoldenLeaf = s.lump < -1.0 && s.lump > -2.9;
     bool isLeaf = s.lump < 0.0 && !isTool;
     bool isClump = s.lump > 0.0 && s.lump < 1.5;
 
     float pixels = s.size * u.scale;
     float2 streak = float2(0.0);
-    if (!isCornerPumpkin && !isTool) {
+    if (!isCornerPumpkin && !isTool && !isGoldenLeaf) {
         float2 travel = s.velocity * (isPumpkin ? 0.006 : isLeaf ? 0.010 : 0.018);
         float smear = min(length(travel), s.size * (isPumpkin ? 0.4 : isLeaf ? 0.9 : (isClump ? 1.2 : 2.0)));
         streak = smear > 0.25 ? normalize(travel) * smear * u.scale : float2(0.0);
     }
-    float reach = (isCornerPumpkin || isTool) ? 1.65 : (isPumpkin ? 1.45 : (isGoldenLeaf ? 1.55 : (isLeaf || isClump ? 1.35 : 1.15)));
+    float reach = isGoldenLeaf ? 2.15 : ((isCornerPumpkin || isTool) ? 1.70 : (isPumpkin ? 1.45 : (isLeaf || isClump ? 1.35 : 1.15)));
     float extent = max(pixels * reach + length(streak), 2.0);
 
     float lanternGlow = 0.0;
@@ -102,8 +102,8 @@ vertex SpriteOut spriteVertex(uint vid [[vertex_id]],
         float seed = s.lump - 2.0;
         out.spin = sin(u.time * 2.2 + seed * 25.0) * 0.28;
     } else if (isGoldenLeaf) {
-        float seed = -s.lump - 1.0;
-        out.spin = u.time * (seed - 0.5) * 4.2 + seed * 31.0;
+        float seed = s.lump < -2.0 ? (-s.lump - 2.0) : (-s.lump - 1.0);
+        out.spin = u.time * (seed - 0.5) * 3.6 + seed * 31.0;
     } else if (isLeaf) {
         float seed = -s.lump;
         out.spin = u.time * (seed - 0.5) * 5.2 + seed * 31.0;
@@ -163,14 +163,26 @@ fragment float4 spriteFragment(SpriteOut in [[stage_in]], float2 coord [[point_c
         }
 
         // Leaf Blower Wind Jet (-5.0)
-        float c = cos(-in.spin), s = sin(-in.spin);
-        float2 wp = float2(u.x * c - u.y * s, u.x * s + u.y * c);
-        float cone = abs(wp.y) - (0.18 + max(wp.x + 0.4, 0.0) * 0.55);
-        float wave = 0.5 + 0.5 * sin(wp.x * 12.0 - in.time * 22.0);
-        float mask = (1.0 - smoothstep(-0.05, 0.25, cone)) * smoothstep(-0.5, 0.9, wp.x) * (1.0 - smoothstep(0.6, 1.35, wp.x));
-        float a = saturate(mask * (0.35 + 0.65 * wave) * in.alpha);
+        if (in.lump > -5.5) {
+            float c = cos(-in.spin), s = sin(-in.spin);
+            float2 wp = float2(u.x * c - u.y * s, u.x * s + u.y * c);
+            float cone = abs(wp.y) - (0.18 + max(wp.x + 0.4, 0.0) * 0.55);
+            float wave = 0.5 + 0.5 * sin(wp.x * 12.0 - in.time * 22.0);
+            float mask = (1.0 - smoothstep(-0.05, 0.25, cone)) * smoothstep(-0.5, 0.9, wp.x) * (1.0 - smoothstep(0.6, 1.35, wp.x));
+            float a = saturate(mask * (0.35 + 0.65 * wave) * in.alpha);
+            if (a < 0.004) discard_fragment();
+            float3 col = mix(float3(0.85, 0.92, 1.0), in.flameColor, 0.45);
+            return float4(col * a, a);
+        }
+
+        // Golden Magnet Arcane Attractor (-6.0)
+        float angle = atan2(u.y, u.x);
+        float pulseRing = exp(-pow((r - 0.88 - 0.08 * sin(in.time * 8.0)) * 5.0, 2.0));
+        float innerRing = exp(-pow((r - 0.42) * 6.0, 2.0));
+        float sparks = pow(saturate(0.5 + 0.5 * cos(angle * 6.0 + in.time * 10.0)), 6.0) * exp(-abs(r - 0.68) * 4.0);
+        float a = saturate((pulseRing * 0.8 + innerRing * 0.65 + sparks * 0.9) * in.alpha);
         if (a < 0.004) discard_fragment();
-        float3 col = mix(float3(0.85, 0.92, 1.0), in.flameColor, 0.45);
+        float3 col = mix(float3(1.0, 0.86, 0.20), float3(0.85, 0.38, 1.0), sin(angle * 3.0 - in.time * 6.0) * 0.5 + 0.5);
         return float4(col * a, a);
     }
 
@@ -293,33 +305,41 @@ fragment float4 spriteFragment(SpriteOut in [[stage_in]], float2 coord [[point_c
         return float4(premult, outA);
     }
 
-    // 3. Rare 24k Golden Leaf (-2.5 < lump < -1.0)
+    // 3. Rare 24k Golden Leaf & Mythic Blood-Moon Jackpot Leaf (-2.9 < lump < -1.0)
     if (in.lump < -1.0) {
-        float seed = -in.lump - 1.0;
+        bool isBloodMoon = in.lump <= -2.0;
+        float seed = isBloodMoon ? (-in.lump - 2.0) : (-in.lump - 1.0);
         float c = cos(in.spin), s = sin(in.spin);
         float2 lp = float2(u.x * c - u.y * s, u.x * s + u.y * c);
-        float tilt = 0.58 + 0.42 * abs(cos(in.spin * 0.65 + seed * 12.0));
+        float tilt = 0.68 + 0.32 * abs(cos(in.spin * 0.55 + seed * 12.0));
         lp.y /= tilt;
 
         float angle = atan2(lp.y, lp.x);
-        float lobes = 1.0 + 0.24 * cos(3.0 * angle) + 0.12 * cos(5.0 * angle);
-        float r = length(lp * float2(0.85, 1.12)) / max(lobes, 0.35);
+        float lobes = 1.0 + 0.26 * cos(3.0 * angle) + 0.14 * cos(5.0 * angle);
+        float r = length(lp * float2(0.85, 1.10)) / max(lobes, 0.35);
 
-        float leafAlpha = (1.0 - smoothstep(0.68, 1.0, r)) * in.alpha;
-        // Golden starlight aura around the leaf
-        float sparklePulse = 0.75 + 0.25 * sin(in.time * 9.0 + seed * 40.0);
-        float aura = exp(-dot(u, u) * 1.45) * 0.48 * sparklePulse * in.alpha;
+        float leafAlpha = (1.0 - smoothstep(0.68, 0.98, r)) * in.alpha;
+        // Blazing 4-pointed starlight cross-flare + golden ring so Golden Leaves pop on screen!
+        float sparklePulse = 0.78 + 0.22 * sin(in.time * 10.0 + seed * 40.0);
+        float starRayX = exp(-abs(u.y) * 7.5) * exp(-abs(u.x) * 1.45);
+        float starRayY = exp(-abs(u.x) * 7.5) * exp(-abs(u.y) * 1.45);
+        float starFlare = (starRayX + starRayY) * (0.65 + 0.35 * sin(in.time * 14.0 + seed * 19.0));
+        float ring = exp(-pow((length(u) - 1.05) * 4.2, 2.0)) * 0.42 * sparklePulse;
+        float aura = saturate(exp(-dot(u, u) * 1.05) * 0.55 * sparklePulse + starFlare * 0.75 + ring) * in.alpha;
         if (leafAlpha < 0.002 && aura < 0.002) discard_fragment();
 
-        float vein = exp(-abs(lp.x + 0.07 * sin(lp.y * 4.0)) * 9.5) * saturate(1.0 - r);
+        float vein = exp(-abs(lp.x + 0.06 * sin(lp.y * 4.0)) * 8.5) * saturate(1.0 - r);
         // Moving metallic specular glint band
-        float glintWave = pow(saturate(0.5 + 0.5 * sin(in.time * 5.2 + (lp.x * 3.5 + lp.y * 2.5) + seed * 20.0)), 6.0);
-        float3 goldBase = mix(float3(1.0, 0.84, 0.18), float3(0.88, 0.56, 0.06), smoothstep(0.25, 0.95, r));
-        float3 goldSpec = float3(1.0, 0.98, 0.82);
-        float3 color = mix(goldBase, goldSpec, saturate(glintWave * 0.75 + vein * 0.55));
-        float3 premult = color * leafAlpha + float3(1.0, 0.85, 0.22) * aura * (1.0 - leafAlpha);
-        float outA = leafAlpha + aura * (1.0 - leafAlpha);
-        return float4(premult, outA);
+        float glintWave = pow(saturate(0.5 + 0.5 * sin(in.time * 6.0 + (lp.x * 3.5 + lp.y * 2.5) + seed * 20.0)), 4.0);
+        float3 baseA = isBloodMoon ? float3(1.0, 0.22, 0.32) : float3(1.0, 0.88, 0.20);
+        float3 baseB = isBloodMoon ? float3(0.75, 0.05, 0.18) : float3(0.92, 0.58, 0.05);
+        float3 specCol = isBloodMoon ? float3(1.0, 0.88, 0.45) : float3(1.0, 0.99, 0.86);
+        float3 auraCol = isBloodMoon ? float3(1.0, 0.28, 0.36) : float3(1.0, 0.86, 0.24);
+        float3 leafCol = mix(baseA, baseB, smoothstep(0.25, 0.95, r));
+        float3 color = mix(leafCol, specCol, saturate(glintWave * 0.82 + vein * 0.65));
+        float3 premult = color * leafAlpha + auraCol * aura * (1.0 - leafAlpha * 0.65);
+        float outA = max(leafAlpha, aura);
+        return float4(min(premult, float3(1.0)), outA);
     }
 
     // 4. Autumn Leaf (-1.0 <= lump < 0.0)
