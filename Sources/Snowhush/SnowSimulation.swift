@@ -225,6 +225,12 @@ final class SnowSimulation {
     private var strengthTarget: Float = 1
     private var nextShift: Double = 0
     private var gust: (start: Double, direction: Float, calm: Bool)?
+    private var leftPumpkinExcitement: Float = 0
+    private var rightPumpkinExcitement: Float = 0
+    private var lastLeftPumpkinTouch: Double = -10
+    private var lastRightPumpkinTouch: Double = -10
+    private var lastCursorMoveTime: Double = -10
+    private var lastToolAngle: Float = 0
 
     init(width: Float, height: Float, snowfall: Snowfall) {
         self.width = width
@@ -244,8 +250,8 @@ final class SnowSimulation {
     }
 
     var pileTop: Float { ground.top }
-    var hasSnow: Bool { layers.contains { $0.top > 0.5 } }
-    var spriteCount: Int { flakes.count + grains.count + motes.count }
+    var hasSnow: Bool { layers.contains { $0.top > 0.5 } || Preferences.cornerPumpkins }
+    var spriteCount: Int { flakes.count + grains.count + motes.count + 4 }
     var columnCount: Int { layers.reduce(0) { $0 + 2 * $1.count } }
 
     func resize(width: Float, height: Float) {
@@ -279,8 +285,9 @@ final class SnowSimulation {
             layer.refreshTop()
             layer.previousBaseY = layer.base.y
         }
-        let lanternActive = Preferences.lanternLight && cursorMoved && hasSnow
-        let pushed = clock - lastWindowMotion < 0.6 || clock - lastCursorPush < 0.3 || gust != nil || lanternActive
+        let toolActive = Preferences.cursorTool != .lantern && (clock - lastCursorMoveTime < 0.45)
+        let lanternActive = (Preferences.lanternLight || toolActive) && cursorMoved && (hasSnow || !flakes.isEmpty)
+        let pushed = clock - lastWindowMotion < 0.6 || clock - lastCursorPush < 0.3 || gust != nil || lanternActive || leftPumpkinExcitement > 0.05 || rightPumpkinExcitement > 0.05
         let flying = grains.count > 24 || clock < scatteredUntil
         if pushed {
             pace = .interactive
@@ -289,7 +296,7 @@ final class SnowSimulation {
         } else {
             pace = .calm
         }
-        let changed = wasMoving || !flakes.isEmpty || !grains.isEmpty || !motes.isEmpty || heightsChanged || windowsChanged || lanternActive
+        let changed = wasMoving || !flakes.isEmpty || !grains.isEmpty || !motes.isEmpty || heightsChanged || windowsChanged || lanternActive || Preferences.cornerPumpkins
         windowsChanged = false
         return changed
     }
@@ -342,7 +349,94 @@ final class SnowSimulation {
             )
             count += 1
         }
+        // Giant Corner Jack-o'-lanterns
+        if Preferences.cornerPumpkins {
+            let cur = cursor ?? SIMD2(width * 0.5, height * 0.5)
+            let leftPos = cornerPumpkinPosition(left: true)
+            let rightPos = cornerPumpkinPosition(left: false)
+            if count < capacity {
+                let dLeft = cur - leftPos
+                let lenL = max(1, simd_length(dLeft))
+                buffer[count] = Sprite(
+                    position: leftPos,
+                    velocity: dLeft / lenL,
+                    size: 62,
+                    alpha: 0.98,
+                    soft: 0.1,
+                    tintAmount: leftPumpkinExcitement,
+                    lump: 3.0
+                )
+                count += 1
+            }
+            if count < capacity {
+                let dRight = cur - rightPos
+                let lenR = max(1, simd_length(dRight))
+                buffer[count] = Sprite(
+                    position: rightPos,
+                    velocity: dRight / lenR,
+                    size: 62,
+                    alpha: 0.98,
+                    soft: 0.1,
+                    tintAmount: rightPumpkinExcitement,
+                    lump: 4.0
+                )
+                count += 1
+            }
+        }
+        // Active Cursor Tool Visual
+        let tool = Preferences.cursorTool
+        if tool != .lantern, let cur = cursor, clock - lastCursorMoveTime < 0.45, count < capacity {
+            let fade = Float(max(0, min(1, (0.45 - (clock - lastCursorMoveTime)) / 0.25)))
+            let dir = SIMD2<Float>(cos(lastToolAngle), sin(lastToolAngle))
+            let toolLump: Float = switch tool {
+            case .vacuum: -3.0
+            case .swiffer: -4.0
+            case .blower: -5.0
+            case .lantern: 0.0
+            }
+            let toolSize: Float = switch tool {
+            case .vacuum: 44
+            case .swiffer: 50
+            case .blower: 48
+            case .lantern: 0
+            }
+            buffer[count] = Sprite(
+                position: cur,
+                velocity: dir,
+                size: toolSize,
+                alpha: 0.88 * fade,
+                soft: 0.2,
+                lump: toolLump
+            )
+            count += 1
+        }
         return count
+    }
+
+    private func cornerPumpkinPosition(left: Bool) -> SIMD2<Float> {
+        let x: Float = left ? 58 : max(58, width - 58)
+        let idx = ground.clampedIndex(at: x)
+        let pileH = ground.surface(idx)
+        return SIMD2(x, 32 + min(14, pileH * 0.32))
+    }
+
+    private func catchGoldenLeaf(at position: SIMD2<Float>) {
+        SoundEngine.shared.noteGoldenCatch()
+        AchievementsManager.shared.recordGoldenLeaf()
+        let sparkleCount = min(maxMotes - motes.count, 18)
+        guard sparkleCount > 0 else { return }
+        for k in 0..<sparkleCount {
+            let angle = Float(k) / Float(sparkleCount) * 2 * .pi + random.range(-0.15, 0.15)
+            let speed = random.range(45, 165)
+            motes.append(Mote(
+                position: position + SIMD2(random.range(-4, 4), random.range(-4, 4)),
+                velocity: SIMD2(cos(angle) * speed, sin(angle) * speed + 35),
+                size: random.range(4.5, 9.5),
+                alpha: random.range(0.75, 1.0),
+                life: random.range(0.65, 1.25),
+                tint: SIMD3(1.0, random.range(0.82, 0.96), random.range(0.18, 0.42))
+            ))
+        }
     }
 
     func writeLayers(into buffer: UnsafeMutablePointer<Float>, capacity: Int) -> [PileLayer] {
@@ -779,16 +873,46 @@ final class SnowSimulation {
 
         let delta = center - previous
         let distance = simd_length(delta)
-        if distance > 0.5 { cursorMoved = true }
+        if distance > 0.5 {
+            cursorMoved = true
+            lastCursorMoveTime = clock
+            if distance > 1.5 {
+                lastToolAngle = atan2(delta.y, delta.x)
+            }
+        }
         var velocity = delta / max(dt, 1.0 / 240)
         let speed = simd_length(velocity)
         if speed > 3000 { velocity *= 3000 / speed }
         cursorVelocity += (velocity - cursorVelocity) * 0.5
 
-        let low = min(center.y, previous.y) - cursorRadius
-        let high = max(center.y, previous.y) + cursorRadius
-        let left = min(center.x, previous.x) - cursorRadius
-        let right = max(center.x, previous.x) + cursorRadius
+        // Corner Jack-o'-lantern interactions
+        leftPumpkinExcitement *= exp(-dt * 2.4)
+        rightPumpkinExcitement *= exp(-dt * 2.4)
+        if Preferences.cornerPumpkins && cursorMoved {
+            let leftPos = cornerPumpkinPosition(left: true)
+            let rightPos = cornerPumpkinPosition(left: false)
+            if simd_length(center - leftPos) < 46 && clock - lastLeftPumpkinTouch > 1.1 {
+                lastLeftPumpkinTouch = clock
+                leftPumpkinExcitement = 1.0
+                triggerCornerPumpkinBurst(at: leftPos)
+            }
+            if simd_length(center - rightPos) < 46 && clock - lastRightPumpkinTouch > 1.1 {
+                lastRightPumpkinTouch = clock
+                rightPumpkinExcitement = 1.0
+                triggerCornerPumpkinBurst(at: rightPos)
+            }
+        }
+
+        let activeRadius: Float = switch Preferences.cursorTool {
+        case .lantern: cursorRadius
+        case .vacuum: 32
+        case .swiffer: 44
+        case .blower: 34
+        }
+        let low = min(center.y, previous.y) - activeRadius
+        let high = max(center.y, previous.y) + activeRadius
+        let left = min(center.x, previous.x) - activeRadius
+        let right = max(center.x, previous.x) + activeRadius
         let touched = layers.filter { layer in
             low <= layer.base.y + layer.top + 1 && high >= layer.base.y - layer.bedDepth
                 && right >= layer.base.x && left <= layer.base.x + layer.width
@@ -800,7 +924,7 @@ final class SnowSimulation {
             for layer in touched { carve(layer, at: center, velocity: .zero, travel: 0, final: true) }
             return
         }
-        let steps = Int(distance / (cursorRadius * 0.5)) + 1
+        let steps = Int(distance / (activeRadius * 0.5)) + 1
         for step in 1...steps {
             let position = previous + delta * (Float(step) / Float(steps))
             for layer in touched {
@@ -809,15 +933,63 @@ final class SnowSimulation {
         }
     }
 
+    private func triggerCornerPumpkinBurst(at pos: SIMD2<Float>) {
+        SoundEngine.shared.noteBurst(size: 13, force: 1.1, isPumpkin: true)
+        AchievementsManager.shared.recordPumpkinInteraction()
+        let count = min(maxMotes - motes.count, 16)
+        for _ in 0..<count {
+            let angle = random.range(0.2, .pi - 0.2)
+            let speed = random.range(60, 210)
+            motes.append(Mote(
+                position: pos + SIMD2(random.range(-14, 14), random.range(6, 22)),
+                velocity: SIMD2(cos(angle) * speed, sin(angle) * speed + 40),
+                size: random.range(4.5, 9.0),
+                alpha: random.range(0.55, 0.95),
+                life: random.range(0.65, 1.3),
+                tint: random.emberColor()
+            ))
+        }
+        // Pop out a rare 24k Golden Leaf from the carved pumpkin top!
+        if flakes.count < targetFlakes + 25 {
+            flakes.append(Flake(
+                position: pos + SIMD2(random.range(-10, 10), 34),
+                velocity: SIMD2(random.range(-90, 90), random.range(110, 190)),
+                fallSpeed: 34,
+                size: 10.5,
+                depth: 0.9,
+                alpha: 0.98,
+                soft: 0.15,
+                phase: random.range(0, phaseWrap),
+                swayRate: 1.2,
+                swayAmount: 18,
+                settles: true,
+                tint: SIMD3(1.0, 0.86, 0.20),
+                tintAmount: 1.0,
+                lump: -1.0 - random.range(0.05, 0.95)
+            ))
+        }
+    }
+
     private func carve(_ layer: SnowLayer, at center: SIMD2<Float>, velocity: SIMD2<Float>, travel: Float, final: Bool) {
-        let radius = cursorRadius
+        let tool = Preferences.cursorTool
+        let radius: Float = switch tool {
+        case .lantern: cursorRadius
+        case .vacuum: 32
+        case .swiffer: 44
+        case .blower: 34
+        }
         let lower = max(0, Int(((center.x - radius - layer.base.x) / columnWidth).rounded(.down)))
         let upper = min(layer.count - 1, Int(((center.x + radius - layer.base.x) / columnWidth).rounded(.down)))
         guard lower <= upper else { return }
 
         let local = center.y - layer.base.y
         let speed = simd_length(velocity)
-        let sprayShare = smoothstep(60, 420, speed)
+        let sprayShare: Float = switch tool {
+        case .lantern: smoothstep(60, 420, speed)
+        case .vacuum: 0
+        case .swiffer: 0
+        case .blower: min(0.92, 0.45 + 0.50 * smoothstep(20, 350, speed))
+        }
         var pushedLeft: Float = 0
         var pushedRight: Float = 0
         var totalRemoved: Float = 0
@@ -849,14 +1021,58 @@ final class SnowSimulation {
 
             let area = removed * columnWidth
             let surface = layer.floor(i) + (buried ? h - removed : h)
-            let sprayed = sprayShare > 0 ? emit(area * sprayShare, from: SIMD2(x, surface), center: center, velocity: velocity) : 0
-            let side = abs(velocity.x) > 40 ? velocity.x : dx
-            if side < 0 { pushedLeft += area - sprayed } else { pushedRight += area - sprayed }
+            if tool == .vacuum {
+                // Suck particles inward toward the Ghost-Vac nozzle
+                if random.next() < 0.25 && motes.count < maxMotes {
+                    let pull = center - SIMD2(x, surface)
+                    motes.append(Mote(
+                        position: SIMD2(x, surface),
+                        velocity: pull * 6.5 + SIMD2(-pull.y, pull.x) * 3.0,
+                        size: random.range(3.0, 6.0),
+                        alpha: 0.65,
+                        life: 0.22,
+                        tint: SIMD3(0.45, 0.95, 1.0)
+                    ))
+                }
+            } else if tool == .swiffer {
+                // Sparkling clean sweep motes
+                if random.next() < 0.22 && motes.count < maxMotes {
+                    motes.append(Mote(
+                        position: SIMD2(x, surface + 2),
+                        velocity: SIMD2(random.range(-25, 25), random.range(25, 75)),
+                        size: random.range(3.2, 6.2),
+                        alpha: 0.72,
+                        life: random.range(0.35, 0.65),
+                        tint: SIMD3(0.55, 0.98, 0.75)
+                    ))
+                }
+                let side = abs(velocity.x) > 40 ? velocity.x : dx
+                if side < 0 { pushedLeft += area * 0.12 } else { pushedRight += area * 0.12 }
+            } else {
+                let boostVel = tool == .blower ? (velocity * 1.65 + SIMD2(dx * 8, 160)) : velocity
+                let sprayed = sprayShare > 0 ? emit(area * sprayShare, from: SIMD2(x, surface), center: center, velocity: boostVel) : 0
+                let side = abs(velocity.x) > 40 ? velocity.x : dx
+                if side < 0 { pushedLeft += area - sprayed } else { pushedRight += area - sprayed }
+            }
         }
 
         if totalRemoved > 0.05 {
-            let rustleIntensity = min(1.0, (totalRemoved / 18.0) * (0.25 + 0.75 * min(1.0, speed / 450.0)))
-            SoundEngine.shared.noteCursorRustle(intensity: rustleIntensity)
+            AchievementsManager.shared.recordFirstRustle()
+            let intensity = min(1.0, (totalRemoved / 18.0) * (0.25 + 0.75 * min(1.0, speed / 450.0)))
+            switch tool {
+            case .lantern, .blower:
+                SoundEngine.shared.noteCursorRustle(intensity: tool == .blower ? max(0.55, intensity) : intensity)
+            case .vacuum:
+                SoundEngine.shared.noteVacuum(intensity: max(0.35, intensity))
+                if final {
+                    AchievementsManager.shared.recordVacuumed(max(1, Int(totalRemoved * 0.45)))
+                }
+            case .swiffer:
+                SoundEngine.shared.noteSwiffer(intensity: max(0.35, intensity))
+                if final {
+                    AchievementsManager.shared.recordSwept(max(1, Int(totalRemoved * 0.45)))
+                }
+            }
         }
 
         for (area, x) in [(pushedLeft, center.x - radius - columnWidth * 3), (pushedRight, center.x + radius + columnWidth * 3)] where area > 0 {
@@ -914,16 +1130,35 @@ final class SnowSimulation {
         let wind = breeze()
         let follow = min(1, dt * 1.2)
         let settle = min(1, dt * 1.6)
-        let wakeRadius: Float = 80
+        let tool = Preferences.cursorTool
+        let wakeRadius: Float = switch tool {
+        case .lantern: 80
+        case .vacuum: 190
+        case .swiffer: 110
+        case .blower: 240
+        }
         var wakeVelocity = cursorVelocity
         let wakeSpeed = simd_length(wakeVelocity)
         if wakeSpeed > 500 { wakeVelocity *= 500 / wakeSpeed }
         let wakeCenter = cursor ?? SIMD2(-10_000, -10_000)
-        let wakeActive = wakeSpeed > 20
+        let wakeActive = wakeSpeed > 20 || (tool == .vacuum && clock - lastCursorMoveTime < 0.35)
+        let catchRadiusSq: Float = (tool == .vacuum || tool == .swiffer) ? (56 * 56) : (38 * 38)
+        var vacuumedThisStep = 0
 
         var i = flakes.count - 1
         while i >= 0 {
             var flake = flakes[i]
+            let diffToCursor = flake.position - wakeCenter
+            let distSqToCursor = simd_length_squared(diffToCursor)
+
+            // Catch rare 24k Golden Leaf with the cursor!
+            if flake.lump < -1.0 && distSqToCursor < catchRadiusSq {
+                catchGoldenLeaf(at: flake.position)
+                recycle(i)
+                i -= 1
+                continue
+            }
+
             if flake.blown != 0 {
                 flake.velocity.x += (flake.blown * gustWind * (1.3 + 1.3 * flake.depth) - flake.velocity.x) * min(1, dt * 2.5)
             } else {
@@ -931,11 +1166,38 @@ final class SnowSimulation {
             }
             flake.velocity.y += (-flake.fallSpeed - flake.velocity.y) * settle
 
-            if wakeActive {
-                let distanceSquared = simd_length_squared(flake.position - wakeCenter)
-                if distanceSquared < wakeRadius * wakeRadius {
-                    let falloff = 1 - distanceSquared.squareRoot() / wakeRadius
+            if wakeActive && distSqToCursor < wakeRadius * wakeRadius {
+                let dist = max(1, distSqToCursor.squareRoot())
+                let falloff = 1 - dist / wakeRadius
+                switch tool {
+                case .vacuum:
+                    if dist < 24 {
+                        vacuumedThisStep += 1
+                        if motes.count < maxMotes && random.next() < 0.35 {
+                            motes.append(Mote(
+                                position: flake.position,
+                                velocity: SIMD2(random.range(-40, 40), random.range(-40, 40)),
+                                size: 3.8,
+                                alpha: 0.65,
+                                life: 0.20,
+                                tint: SIMD3(0.45, 0.95, 1.0)
+                            ))
+                        }
+                        recycle(i)
+                        i -= 1
+                        continue
+                    }
+                    let radial = -diffToCursor / dist
+                    let tangent = SIMD2(-radial.y, radial.x)
+                    let pullTarget = radial * (420 + 380 * falloff) + tangent * (280 * falloff)
+                    flake.velocity += (pullTarget - flake.velocity) * min(1, (0.35 + falloff * 0.65) * 9 * dt)
+                case .blower:
+                    let outward = diffToCursor / dist
+                    let blast = outward * (620 * falloff) + wakeVelocity * 1.45
+                    flake.velocity += (blast - flake.velocity) * min(1, falloff * 8 * dt)
+                case .lantern, .swiffer:
                     flake.velocity += (wakeVelocity - flake.velocity) * min(1, falloff * falloff * 4 * dt)
+                    if wakeSpeed > 60 { AchievementsManager.shared.recordFirstRustle() }
                 }
             }
 
@@ -980,6 +1242,10 @@ final class SnowSimulation {
 
             flakes[i] = flake
             i -= 1
+        }
+        if vacuumedThisStep > 0 {
+            SoundEngine.shared.noteVacuum(intensity: min(1.0, Float(vacuumedThisStep) * 0.25))
+            AchievementsManager.shared.recordVacuumed(vacuumedThisStep)
         }
     }
 
@@ -1100,8 +1366,10 @@ final class SnowSimulation {
         let near = random.next() < 0.02
         let depth = near ? 1 : pow(random.next(), 1.6)
         let roll = random.next()
-        let isPumpkin = !near && roll < 0.045
-        let isEmber = !isPumpkin && roll < 0.24
+        let goldenChance = 0.025 * AchievementsManager.shared.goldenSpawnMultiplier
+        let isGoldenLeaf = !near && roll < goldenChance
+        let isPumpkin = !near && !isGoldenLeaf && roll < (goldenChance + 0.045)
+        let isEmber = !isGoldenLeaf && !isPumpkin && roll < (goldenChance + 0.24)
 
         let fallSpeed: Float
         let size: Float
@@ -1110,7 +1378,14 @@ final class SnowSimulation {
         let soft: Float
         let swayAmount: Float
 
-        if isPumpkin {
+        if isGoldenLeaf {
+            fallSpeed = 24 + depth * 38 + random.range(0, 10)
+            size = 6.8 + depth * 5.2
+            lump = -1.0 - random.range(0.05, 0.95)
+            tint = SIMD3(1.0, 0.86, 0.20)
+            soft = 0.14
+            swayAmount = random.range(12, 22) + depth * 10
+        } else if isPumpkin {
             fallSpeed = 38 + depth * 62 + random.range(0, 14)
             size = 7.2 + depth * 5.2
             lump = 2.0 + random.range(0.05, 0.95)
@@ -1193,6 +1468,7 @@ final class SnowSimulation {
 
     func blowAway(direction: Float, calm: Bool) {
         gust = (clock, direction < 0 ? -1 : 1, calm)
+        AchievementsManager.shared.recordGust()
         if !calm {
             SoundEngine.shared.noteGust()
         }

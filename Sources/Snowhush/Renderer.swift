@@ -15,6 +15,7 @@ struct Uniforms {
     var light = SIMD4<Float>(1, 1, 1, 1)
     var shadowTint = SIMD4<Float>(0, 0, 0, 0)
     var lantern = SIMD4<Float>(0, 0, 0, 0)
+    var flameColor = SIMD4<Float>(1.0, 0.54, 0.14, 1.0)
 }
 
 enum RendererError: Error {
@@ -147,6 +148,8 @@ final class Renderer: NSObject, MTKViewDelegate {
 
         let flicker = 0.88 + 0.12 * sin(time * 9.5) * cos(time * 14.3)
         let lanternEnabled: Float = Preferences.lanternLight ? 1.0 : 0.0
+        let flameRGB = Preferences.flameTheme.color
+        let cornerEnabled: Float = Preferences.cornerPumpkins ? 1.0 : 0.0
         var uniforms = Uniforms(
             viewSize: SIMD2(simulation.width, simulation.height),
             scale: scale,
@@ -154,7 +157,8 @@ final class Renderer: NSObject, MTKViewDelegate {
             columnWidth: simulation.columnWidth,
             light: SIMD4(ambient.light, 1),
             shadowTint: ambient.shadowTint,
-            lantern: SIMD4(cursor.x, cursor.y, lanternEnabled, flicker)
+            lantern: SIMD4(cursor.x, cursor.y, lanternEnabled, flicker),
+            flameColor: SIMD4(flameRGB.x, flameRGB.y, flameRGB.z, cornerEnabled)
         )
         let uniformsLength = MemoryLayout<Uniforms>.stride
 

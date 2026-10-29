@@ -13,6 +13,8 @@ final class SoundEngine {
                 lock.lock()
                 rustleTarget = 0
                 rustleLevel = 0
+                vacuumTarget = 0
+                vacuumLevel = 0
                 gustRemain = 0
                 thuds.removeAll()
                 crackles.removeAll()
@@ -33,6 +35,9 @@ final class SoundEngine {
     private var rngState: UInt64 = 0x853C_49E6_748F_EA9B
     private var rustleLevel: Float = 0
     private var rustleTarget: Float = 0
+    private var vacuumLevel: Float = 0
+    private var vacuumTarget: Float = 0
+    private var vacuumPhase: Float = 0
     private var lpState1: Float = 0
     private var lpState2: Float = 0
     private var bpState1: Float = 0
@@ -193,6 +198,75 @@ final class SoundEngine {
         lock.unlock()
     }
 
+    /// Called when the Ghost-Vac sucks up leaves and piles.
+    func noteVacuum(intensity: Float) {
+        guard isEnabled, intensity > 0.01 else { return }
+        ensureRunning()
+        lock.lock()
+        idleTime = 0
+        let clamped = min(max(intensity, 0), 1)
+        vacuumTarget = max(vacuumTarget, clamped * 0.45)
+        lock.unlock()
+    }
+
+    /// Called when the Witch Swiffer sweeps cleanly across a leaf pile.
+    func noteSwiffer(intensity: Float) {
+        guard isEnabled, intensity > 0.01 else { return }
+        let now = CACurrentMediaTime()
+        ensureRunning()
+        lock.lock()
+        idleTime = 0
+        let clamped = min(max(intensity, 0), 1)
+        rustleTarget = max(rustleTarget, clamped * 0.30)
+        if now - lastRustleTime > 0.055 && chimes.count < 10 {
+            lastRustleTime = now
+            let notes: [Float] = [1046.5, 1174.66, 1318.51, 1567.98]
+            let f = notes[Int(nextFloat() * Float(notes.count)) % notes.count]
+            chimes.append(Chime(
+                duration: 0.22,
+                freq: f,
+                amp: 0.035 * clamped
+            ))
+        }
+        lock.unlock()
+    }
+
+    /// Called when a rare 24k Golden Leaf is caught!
+    func noteGoldenCatch() {
+        guard isEnabled else { return }
+        ensureRunning()
+        lock.lock()
+        idleTime = 0
+        let arpeggio: [Float] = [783.99, 987.77, 1174.66, 1567.98] // G5 - B5 - D6 - G6
+        for (idx, freq) in arpeggio.enumerated() where chimes.count < 16 {
+            chimes.append(Chime(
+                age: -Float(idx) * 0.045,
+                duration: 0.55,
+                freq: freq,
+                amp: 0.085
+            ))
+        }
+        lock.unlock()
+    }
+
+    /// Called when an Achievement / Trophy is unlocked!
+    func noteAchievementUnlocked() {
+        guard isEnabled else { return }
+        ensureRunning()
+        lock.lock()
+        idleTime = 0
+        let fanfare: [Float] = [523.25, 659.25, 783.99, 1046.50, 1318.51] // C5 - E5 - G5 - C6 - E6
+        for (idx, freq) in fanfare.enumerated() where chimes.count < 20 {
+            chimes.append(Chime(
+                age: -Float(idx) * 0.065,
+                duration: 0.85,
+                freq: freq,
+                amp: 0.095
+            ))
+        }
+        lock.unlock()
+    }
+
     // MARK: - Audio Render Loop
 
     private func render(frames: Int, buffers: UnsafeMutableAudioBufferListPointer) {
@@ -200,7 +274,7 @@ final class SoundEngine {
         defer { lock.unlock() }
 
         let dt = 1.0 / sampleRate
-        let hasActive = rustleLevel > 0.0005 || rustleTarget > 0.0005 || gustRemain > 0 || !thuds.isEmpty || !crackles.isEmpty || !chimes.isEmpty
+        let hasActive = rustleLevel > 0.0005 || rustleTarget > 0.0005 || vacuumLevel > 0.0005 || vacuumTarget > 0.0005 || gustRemain > 0 || !thuds.isEmpty || !crackles.isEmpty || !chimes.isEmpty
 
         if !hasActive || !isEnabled {
             for buf in buffers {
@@ -227,6 +301,18 @@ final class SoundEngine {
                 bpState1 += (lpState1 - bpState1) * 0.045
                 let leafBand = lpState1 - bpState1
                 sample += leafBand * rustleLevel
+            }
+
+            // 1b. Ghost-Vac vortex suction hum
+            vacuumLevel += (vacuumTarget - vacuumLevel) * min(1, dt * 14)
+            vacuumTarget *= max(0, 1 - dt * 10)
+            if vacuumLevel > 0.0005 {
+                vacuumPhase += dt * (145 + vacuumLevel * 95) * 2 * .pi
+                if vacuumPhase > 20 * .pi { vacuumPhase -= 20 * .pi }
+                let hum = sin(vacuumPhase) * 0.35 + sin(vacuumPhase * 1.5) * 0.18
+                lpState1 += (white - lpState1) * 0.18
+                let whoosh = lpState1 * 0.55
+                sample += (hum + whoosh) * vacuumLevel * 0.55
             }
 
             // 2. Eerie Halloween wind gust
@@ -286,7 +372,9 @@ final class SoundEngine {
             while chi >= 0 {
                 var ch = chimes[chi]
                 ch.age += dt
-                if ch.age >= ch.duration {
+                if ch.age < 0 {
+                    chimes[chi] = ch
+                } else if ch.age >= ch.duration {
                     chimes.swapAt(chi, chimes.count - 1)
                     chimes.removeLast()
                 } else {

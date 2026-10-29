@@ -343,11 +343,11 @@ impl SnowSimulation {
     }
 
     pub fn has_snow(&self) -> bool {
-        self.layers.iter().any(|layer| layer.top > 0.5)
+        true
     }
 
     pub fn sprite_count(&self) -> usize {
-        self.air.flakes.len() + self.air.grains.len() + self.air.motes.len()
+        self.air.flakes.len() + self.air.grains.len() + self.air.motes.len() + 2
     }
 
     /// Floats the renderer needs per frame: each layer's surface and bed.
@@ -447,6 +447,32 @@ impl SnowSimulation {
         for (slot, sprite) in buffer.iter_mut().zip(flakes.chain(grains).chain(motes)) {
             *slot = sprite;
             count += 1;
+        }
+        // Giant Corner Jack-o'-lanterns
+        let cur = self.air.cursor.unwrap_or(V2::new(self.width * 0.5, self.height * 0.5));
+        let ground = &self.layers[0];
+        let left_x = 58.0_f32;
+        let right_x = (self.width - 58.0).max(58.0);
+        let left_y = 32.0 + (ground.surface(ground.clamped_index(left_x)) * 0.32).min(14.0);
+        let right_y = 32.0 + (ground.surface(ground.clamped_index(right_x)) * 0.32).min(14.0);
+        let left_pos = V2::new(left_x, left_y);
+        let right_pos = V2::new(right_x, right_y);
+        for (pos, lump) in [(left_pos, 3.0_f32), (right_pos, 4.0_f32)] {
+            if count < buffer.len() {
+                let d = cur - pos;
+                let len = d.length().max(1.0);
+                buffer[count] = Sprite {
+                    position: pos,
+                    velocity: d / len,
+                    size: 62.0,
+                    alpha: 0.98,
+                    soft: 0.1,
+                    tint_amount: 0.0,
+                    tint: [1.0, 0.54, 0.14],
+                    lump,
+                };
+                count += 1;
+            }
         }
         count
     }
@@ -675,6 +701,26 @@ impl SnowSimulation {
         while i > 0 {
             i -= 1;
             let mut flake = self.air.flakes[i];
+            let dist_sq_cursor = (flake.position - wake_center).length_squared();
+            if flake.lump < -1.0 && dist_sq_cursor < 38.0 * 38.0 {
+                // Caught a rare 24k Golden Leaf!
+                let sparkle_count = MAX_MOTES.saturating_sub(self.air.motes.len()).min(16);
+                for k in 0..sparkle_count {
+                    let angle = (k as f32 / sparkle_count as f32) * TAU + self.air.random.range(-0.15, 0.15);
+                    let speed = self.air.random.range(45.0, 160.0);
+                    self.air.motes.push(Mote {
+                        position: flake.position + V2::new(self.air.random.range(-4.0, 4.0), self.air.random.range(-4.0, 4.0)),
+                        velocity: V2::new(angle.cos() * speed, angle.sin() * speed + 35.0),
+                        size: self.air.random.range(4.5, 9.0),
+                        alpha: self.air.random.range(0.75, 1.0),
+                        age: 0.0,
+                        life: self.air.random.range(0.65, 1.2),
+                        tint: [1.0, self.air.random.range(0.82, 0.96), 0.22],
+                    });
+                }
+                self.recycle(i);
+                continue;
+            }
             if flake.blown != 0.0 {
                 // The nearer the flake, the faster the gust seems to carry it.
                 flake.velocity.x += (flake.blown * GUST_WIND * (1.3 + 1.3 * flake.depth) - flake.velocity.x) * (dt * 2.5).min(1.0);
@@ -1446,12 +1492,15 @@ impl Air {
         let near = random.next() < 0.025;
         let depth = if near { 1.0 } else { random.next().powf(1.5) };
         let kind_roll = random.next();
-        // ~68% autumn leaves, ~25% glowing embers & spectral dust, ~7% mini Jack-o'-lantern pumpkins
-        let is_pumpkin = !near && kind_roll > 0.93 && depth > 0.25;
-        let is_ember = !is_pumpkin && (kind_roll > 0.68 || near);
+        // ~3% 24k Golden Leaf, ~65% autumn leaves, ~25% glowing embers & spectral dust, ~7% mini Jack-o'-lantern pumpkins
+        let is_golden_leaf = !near && kind_roll < 0.03;
+        let is_pumpkin = !near && !is_golden_leaf && kind_roll > 0.93 && depth > 0.25;
+        let is_ember = !is_golden_leaf && !is_pumpkin && (kind_roll > 0.68 || near);
 
         let fall_speed = if near {
             random.range(70.0, 95.0)
+        } else if is_golden_leaf {
+            24.0 + depth * 38.0 + random.range(0.0, 10.0)
         } else if is_pumpkin {
             34.0 + depth * 64.0 + random.range(0.0, 14.0)
         } else if is_ember {
@@ -1462,6 +1511,8 @@ impl Air {
 
         let size = if near {
             random.range(9.0, 14.0)
+        } else if is_golden_leaf {
+            6.8 + depth * 5.2
         } else if is_pumpkin {
             5.2 + depth * 4.2 + random.range(0.0, 1.5)
         } else if is_ember {
@@ -1470,7 +1521,9 @@ impl Air {
             2.6 + depth * 4.4 + random.range(0.0, 1.2)
         };
 
-        let tint = if is_pumpkin {
+        let tint = if is_golden_leaf {
+            [1.0, 0.86, 0.20]
+        } else if is_pumpkin {
             [0.98, random.range(0.42, 0.56), random.range(0.05, 0.14)]
         } else if is_ember {
             if random.next() < 0.22 {
@@ -1484,7 +1537,9 @@ impl Air {
             random_autumn_tint(random)
         };
 
-        let lump = if is_pumpkin {
+        let lump = if is_golden_leaf {
+            -1.0 - random.range(0.05, 0.95)
+        } else if is_pumpkin {
             2.0 + random.range(0.05, 0.95)
         } else if is_ember {
             0.0

@@ -34,6 +34,8 @@
     accumulate: true,
     melt: true,
     windows: true,
+    tool: 'lantern',
+    cornerPumpkins: true,
     lantern: true,
     sound: true,
     behind: false,
@@ -41,6 +43,7 @@
     login: false,
     quit: false,
   };
+  let goldenLeavesCount = 0;
   const variation = { strength: 1, target: 1, next: 0, clock: 0 };
 
   const rand = (a, b) => a + Math.random() * (b - a);
@@ -174,6 +177,26 @@
         src.connect(filter).connect(gain).connect(ac.destination);
         src.start(now);
         src.stop(now + 2.15);
+      },
+
+      goldenCatch() {
+        const ac = ensureContext();
+        if (!ac) return;
+        const now = ac.currentTime;
+        const notes = [783.99, 987.77, 1174.66, 1567.98];
+        notes.forEach((freq, idx) => {
+          const osc = ac.createOscillator();
+          const g = ac.createGain();
+          osc.type = 'sine';
+          const t0 = now + idx * 0.045;
+          osc.frequency.setValueAtTime(freq, t0);
+          g.gain.setValueAtTime(0.001, t0);
+          g.gain.linearRampToValueAtTime(0.075, t0 + 0.015);
+          g.gain.exponentialRampToValueAtTime(0.0008, t0 + 0.45);
+          osc.connect(g).connect(ac.destination);
+          osc.start(t0);
+          osc.stop(t0 + 0.46);
+        });
       },
     };
   })();
@@ -386,10 +409,12 @@
       float light = uNight == 1 && uLamp.z > 0.5 ? lampCone(aPosition) : 0.0;
       float lantern = lanternCone(aPosition);
       float lump = aLook.w;
-      bool isPumpkin = lump >= 2.0;
+      bool isCornerPumpkin = lump >= 3.0;
+      bool isPumpkin = lump >= 2.0 && lump < 3.0;
+      bool isGoldenLeaf = lump < -1.0;
       bool isLeaf = lump < 0.0;
       bool isClump = lump > 0.0 && lump < 1.5;
-      float grow = (1.0 + 1.1 * max(light, lantern)) * (isPumpkin ? 1.45 : (isLeaf || isClump ? 1.35 : 1.15));
+      float grow = (isCornerPumpkin ? 1.65 : (1.0 + 1.1 * max(light, lantern)) * (isPumpkin ? 1.45 : (isGoldenLeaf ? 1.55 : (isLeaf || isClump ? 1.35 : 1.15))));
       float pixels = aLook.x * uScale;
       gl_Position = vec4(aPosition.x / uView.x * 2.0 - 1.0, 1.0 - aPosition.y / uView.y * 2.0, 0.0, 1.0);
       gl_PointSize = max(pixels * grow, 2.0);
@@ -400,9 +425,14 @@
       vGrow = grow;
       vLump = lump;
       vTint = aTint;
-      if (isPumpkin) {
+      if (isCornerPumpkin) {
+        vSpin = sin(uTime * 1.6 + lump * 4.0) * 0.035;
+      } else if (isPumpkin) {
         float seed = lump - 2.0;
         vSpin = sin(uTime * 2.2 + seed * 25.0) * 0.28;
+      } else if (isGoldenLeaf) {
+        float seed = -lump - 1.0;
+        vSpin = uTime * (seed - 0.5) * 4.2 + seed * 31.0;
       } else if (isLeaf) {
         float seed = -lump;
         vSpin = uTime * (seed - 0.5) * 5.2 + seed * 31.0;
@@ -432,6 +462,48 @@
     void main() {
       vec2 p = vec2(gl_PointCoord.x - 0.5, 0.5 - gl_PointCoord.y);
       vec2 u = p * 2.0 * vGrow;
+
+      // 0. Giant Sculpted Corner Jack-o'-lantern
+      if (vLump >= 3.0) {
+        float side = vLump > 3.5 ? -1.0 : 1.0;
+        float c = cos(vSpin * side), s = sin(vSpin * side);
+        vec2 lp = vec2(u.x * c - u.y * s, u.x * s + u.y * c);
+        vec2 stemP = lp - vec2(0.06 * side * sin(lp.y * 4.0), 0.76);
+        bool inStem = abs(stemP.x - 0.08 * side * (lp.y - 0.55)) < 0.13 * (1.18 - (lp.y - 0.58)) && lp.y > 0.52 && lp.y < 1.08;
+
+        vec2 bodyP = vec2(lp.x * 0.82, (lp.y + 0.08) * 1.08);
+        float bodyR = length(bodyP);
+        float ribWave = cos(lp.x * 6.8);
+        bodyR -= 0.055 * ribWave * (1.0 - abs(lp.y) * 0.45);
+
+        float bodyAlpha = 1.0 - smoothstep(0.86, 0.97, bodyR);
+        float stemAlpha = inStem ? (1.0 - smoothstep(1.0, 1.08, lp.y)) : 0.0;
+        float a = max(bodyAlpha, stemAlpha) * vAlpha;
+        float flicker = 0.88 + 0.12 * sin(uTime * 11.5 + side * 2.0) * cos(uTime * 17.0);
+        float halo = exp(-dot(u, u) * 1.25) * 0.44 * vAlpha;
+        if (a < 0.002 && halo < 0.002) discard;
+
+        vec3 pumpkinBase = mix(vec3(0.98, 0.46, 0.08), vec3(0.52, 0.14, 0.02), clamp(bodyR * 0.72 - ribWave * 0.22 - lp.y * 0.18, 0.0, 1.0));
+        float ex = abs(lp.x) - 0.31;
+        float ey = lp.y - 0.14;
+        bool inEye = ey > -0.11 && ey < 0.22 && abs(ex) < (0.23 - ey) * 0.82;
+        bool inNose = lp.y > -0.11 && lp.y < 0.04 && abs(lp.x) < (0.05 - lp.y) * 0.75;
+        float mx = abs(lp.x);
+        float smileCurve = -0.26 + 0.18 * lp.x * lp.x;
+        float my = lp.y - smileCurve;
+        float tooth = 0.055 * sign(sin(lp.x * 19.0));
+        bool inMouth = mx < 0.56 && abs(my - tooth * 0.35) < 0.135 * (1.0 - mx * 1.15);
+
+        vec3 col = pumpkinBase;
+        if (inStem && bodyAlpha < 0.5) {
+          col = vec3(0.26, 0.36, 0.13);
+        } else if (inEye || inNose || inMouth) {
+          col = vec3(1.0, 0.86, 0.30) * (1.28 * flicker);
+        }
+        vec3 premult = col * a + vec3(1.0, 0.50, 0.12) * halo * (1.0 - a);
+        outColor = vec4(premult, a + halo * (1.0 - a));
+        return;
+      }
 
       // 1. Mini Jack-o'-lantern Pumpkin
       if (vLump >= 2.0) {
@@ -473,6 +545,33 @@
         col *= (0.75 + 0.45 * max(vLight, vLantern));
         vec3 premult = col * a + vec3(1.0, 0.48, 0.10) * halo * (1.0 - a);
         outColor = vec4(premult, a + halo * (1.0 - a));
+        return;
+      }
+
+      // 2a. Rare 24k Golden Leaf
+      if (vLump < -1.0) {
+        float seed = -vLump - 1.0;
+        float c = cos(vSpin), s = sin(vSpin);
+        vec2 lp = vec2(u.x * c - u.y * s, u.x * s + u.y * c);
+        float tilt = 0.58 + 0.42 * abs(cos(vSpin * 0.65 + seed * 12.0));
+        lp.y /= tilt;
+
+        float angle = atan(lp.y, lp.x);
+        float lobes = 1.0 + 0.24 * cos(3.0 * angle) + 0.12 * cos(5.0 * angle);
+        float r = length(lp * vec2(0.85, 1.12)) / max(lobes, 0.35);
+
+        float leafAlpha = (1.0 - smoothstep(0.68, 1.0, r)) * vAlpha;
+        float sparklePulse = 0.75 + 0.25 * sin(uTime * 9.0 + seed * 40.0);
+        float aura = exp(-dot(u, u) * 1.45) * 0.48 * sparklePulse * vAlpha;
+        if (leafAlpha < 0.002 && aura < 0.002) discard;
+
+        float vein = exp(-abs(lp.x + 0.07 * sin(lp.y * 4.0)) * 9.5) * clamp(1.0 - r, 0.0, 1.0);
+        float glintWave = pow(clamp(0.5 + 0.5 * sin(uTime * 5.2 + (lp.x * 3.5 + lp.y * 2.5) + seed * 20.0), 0.0, 1.0), 6.0);
+        vec3 goldBase = mix(vec3(1.0, 0.84, 0.18), vec3(0.88, 0.56, 0.06), smoothstep(0.25, 0.95, r));
+        vec3 goldSpec = vec3(1.0, 0.98, 0.82);
+        vec3 color = mix(goldBase, goldSpec, clamp(glintWave * 0.75 + vein * 0.55, 0.0, 1.0));
+        vec3 premult = color * leafAlpha + vec3(1.0, 0.85, 0.22) * aura * (1.0 - leafAlpha);
+        outColor = vec4(premult, leafAlpha + aura * (1.0 - leafAlpha));
         return;
       }
 
@@ -807,11 +906,19 @@
       const near = Math.random() < 0.02;
       const depth = near ? 1 : Math.pow(Math.random(), 1.6);
       const roll = Math.random();
-      const isPumpkin = !near && roll < 0.045;
-      const isEmber = !isPumpkin && roll < 0.24;
+      const isGoldenLeaf = !near && roll < 0.028;
+      const isPumpkin = !near && !isGoldenLeaf && roll < 0.073;
+      const isEmber = !isGoldenLeaf && !isPumpkin && roll < 0.26;
 
       let fall, size, lump, tint, soft, swayAmount;
-      if (isPumpkin) {
+      if (isGoldenLeaf) {
+        fall = 24 + depth * 38 + rand(0, 10);
+        size = 6.8 + depth * 5.2;
+        lump = -1.0 - rand(0.05, 0.95);
+        tint = [1.0, 0.86, 0.20];
+        soft = 0.14;
+        swayAmount = rand(12, 22) + depth * 10;
+      } else if (isPumpkin) {
         fall = 38 + depth * 62 + rand(0, 14);
         size = 7.2 + depth * 5.2;
         lump = 2.0 + rand(0.05, 0.95);
@@ -932,22 +1039,57 @@
       }
 
       const flakes = this.flakes;
+      const tool = settings.tool;
+      const wakeRadius = tool === 'vacuum' ? 190 : tool === 'blower' ? 240 : tool === 'swiffer' ? 110 : 80;
       for (let i = flakes.length - 1; i >= 0; i--) {
         const f = flakes[i];
+        if (this.cursor && f.lump < -1.0 && Math.hypot(f.x - this.cursor.x, f.y - this.cursor.y) < 44) {
+          goldenLeavesCount++;
+          const label = document.getElementById('gold-count-label');
+          if (label) label.textContent = `✨ ${goldenLeavesCount}`;
+          AudioFX.goldenCatch();
+          for (let s = 0; s < 14 && this.motes.length < MAX_MOTES; s++) {
+            const ang = (s / 14) * Math.PI * 2 + rand(-0.15, 0.15);
+            const spd = rand(45, 160);
+            this.motes.push({
+              x: f.x, y: f.y,
+              vx: Math.cos(ang) * spd, vy: Math.sin(ang) * spd - 35,
+              size: rand(4.5, 9), alpha: rand(0.75, 1), age: 0, life: rand(0.65, 1.2),
+              tint: [1.0, rand(0.82, 0.96), 0.22],
+            });
+          }
+          flakes[i] = this.makeFlake(-rand(4, 40));
+          continue;
+        }
         if (f.blown) {
           f.vx += (f.blown * GUST_WIND * (1.3 + 1.3 * f.depth) - f.vx) * Math.min(1, dt * 2.5);
         } else {
           f.vx += (wind * (0.35 + 0.65 * f.depth) - f.vx) * follow;
         }
         f.vy += (f.fall - f.vy) * settle;
-        if (wake) {
-          const dx = f.x - wake.x, dy = f.y - wake.y;
+        if (this.cursor) {
+          const dx = f.x - this.cursor.x, dy = f.y - this.cursor.y;
           const distance = Math.hypot(dx, dy);
-          if (distance < 80) {
-            const falloff = 1 - distance / 80;
-            const k = Math.min(1, falloff * falloff * 4 * dt);
-            f.vx += (wake.vx - f.vx) * k;
-            f.vy += (wake.vy - f.vy) * k;
+          if (distance < wakeRadius) {
+            const falloff = 1 - distance / wakeRadius;
+            if (tool === 'vacuum') {
+              if (distance < 24) {
+                flakes[i] = this.makeFlake(-rand(4, 40));
+                continue;
+              }
+              const rx = -dx / Math.max(1, distance), ry = -dy / Math.max(1, distance);
+              const tx = -ry, ty = rx;
+              f.vx += ((rx * 480 + tx * 260) * falloff - f.vx) * Math.min(1, 8 * dt);
+              f.vy += ((ry * 480 + ty * 260) * falloff - f.vy) * Math.min(1, 8 * dt);
+            } else if (tool === 'blower' && wake) {
+              const ox = dx / Math.max(1, distance), oy = dy / Math.max(1, distance);
+              f.vx += (ox * 620 * falloff + wake.vx * 1.4 - f.vx) * Math.min(1, falloff * 8 * dt);
+              f.vy += (oy * 620 * falloff + wake.vy * 1.4 - f.vy) * Math.min(1, falloff * 8 * dt);
+            } else if (wake) {
+              const k = Math.min(1, falloff * falloff * 4 * dt);
+              f.vx += (wake.vx - f.vx) * k;
+              f.vy += (wake.vy - f.vy) * k;
+            }
           }
         }
         f.phase += f.swayRate * dt;
@@ -1304,13 +1446,14 @@
     }
 
     carve(layer, center, velocity, travel, final) {
-      const r = CURSOR_RADIUS;
+      const tool = settings.tool;
+      const r = tool === 'vacuum' ? 32 : tool === 'swiffer' ? 44 : tool === 'blower' ? 34 : CURSOR_RADIUS;
       const lower = Math.max(0, Math.floor((center.x - r - layer.x) / COLUMN));
       const upper = Math.min(layer.count - 1, Math.floor((center.x + r - layer.x) / COLUMN));
       if (lower > upper) return;
       const local = layer.y - center.y;
       const speed = Math.hypot(velocity[0], velocity[1]);
-      const sprayShare = smoothstep(60, 420, speed);
+      const sprayShare = (tool === 'vacuum' || tool === 'swiffer') ? 0 : (tool === 'blower' ? 0.88 : smoothstep(60, 420, speed));
       let pushedLeft = 0, pushedRight = 0, totalRemoved = 0;
 
       for (let i = lower; i <= upper; i++) {
@@ -1333,6 +1476,13 @@
         totalRemoved += removed;
         const area = removed * COLUMN;
         const surface = layer.floorY(i) - (buried ? h - removed : h);
+        if (tool === 'vacuum') continue;
+        if (tool === 'swiffer') {
+          const side = Math.abs(velocity[0]) > 40 ? velocity[0] : dx;
+          if (side < 0) pushedLeft += area * 0.12;
+          else pushedRight += area * 0.12;
+          continue;
+        }
         const sprayed = sprayShare > 0 ? this.emit(area * sprayShare, [x, surface], center, velocity) : 0;
         const side = Math.abs(velocity[0]) > 40 ? velocity[0] : dx;
         if (side < 0) pushedLeft += area - sprayed;
@@ -1419,7 +1569,8 @@
         gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
       }
 
-      const total = this.flakes.length + this.grains.length + this.motes.length;
+      const cornerCount = settings.cornerPumpkins ? 2 : 0;
+      const total = this.flakes.length + this.grains.length + this.motes.length + cornerCount;
       if (!total) return;
       if (this.spriteData.length < total * 9) this.spriteData = new Float32Array(Math.ceil(total * 1.5) * 9);
       const data = this.spriteData;
@@ -1447,6 +1598,15 @@
         data[k++] = 0.9;
         data[k++] = 0;
         data[k++] = tint[0]; data[k++] = tint[1]; data[k++] = tint[2];
+      }
+      if (settings.cornerPumpkins) {
+        const py = this.height - 32;
+        data[k++] = 58; data[k++] = py;
+        data[k++] = 56; data[k++] = 0.98; data[k++] = 0.1; data[k++] = 3.0;
+        data[k++] = 1.0; data[k++] = 0.54; data[k++] = 0.14;
+        data[k++] = this.width - 58; data[k++] = py;
+        data[k++] = 56; data[k++] = 0.98; data[k++] = 0.1; data[k++] = 4.0;
+        data[k++] = 1.0; data[k++] = 0.54; data[k++] = 0.14;
       }
       gl.useProgram(this.sprite.program);
       const s = this.sprite.uniforms;
@@ -1560,6 +1720,8 @@
       if (item.dataset.snowfall) {
         settings.snowfall = item.dataset.snowfall;
         if (settings.snowfall === 'variable') variation.next = variation.clock;
+      } else if (item.dataset.tool) {
+        settings.tool = item.dataset.tool;
       } else if (item.dataset.toggle) {
         settings[item.dataset.toggle] = !settings[item.dataset.toggle];
         if (item.dataset.toggle === 'sound' && settings.sound) {
@@ -1658,6 +1820,7 @@
   function reflect() {
     for (const item of document.querySelectorAll('[data-snow-menu] .menu-item')) {
       if (item.dataset.snowfall) item.setAttribute('aria-checked', String(!settings.quit && item.dataset.snowfall === settings.snowfall));
+      if (item.dataset.tool) item.setAttribute('aria-checked', String(item.dataset.tool === settings.tool));
       if (item.dataset.toggle) item.setAttribute('aria-checked', String(settings[item.dataset.toggle]));
       if (item.dataset.toggle === 'melt') item.setAttribute('aria-disabled', String(!settings.accumulate));
       if (item.dataset.toggle === 'windows') item.setAttribute('aria-disabled', String(settings.behind));

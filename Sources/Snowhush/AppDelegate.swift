@@ -12,6 +12,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, SPUSta
     private var snowOnWindows = true
     private var behindWindows = false
     private var lanternLight = true
+    private var cornerPumpkins = true
+    private var cursorTool = CursorTool.lantern
     private var soundEffects = true
     private var snowfallHeld = false
     private var statusItem: NSStatusItem!
@@ -20,8 +22,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, SPUSta
     private var meltItem: NSMenuItem!
     private var snowOnWindowsItem: NSMenuItem!
     private var clearItem: NSMenuItem!
+    private var toolItems: [CursorTool: NSMenuItem] = [:]
+    private var cornerPumpkinsItem: NSMenuItem!
     private var lanternItem: NSMenuItem!
     private var soundItem: NSMenuItem!
+    private var trophiesItem: NSMenuItem!
     private var behindWindowsItem: NSMenuItem!
     private var screenshotsItem: NSMenuItem!
     private var loginItem: NSMenuItem!
@@ -50,6 +55,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, SPUSta
         snowOnWindows = Preferences.snowOnWindows
         behindWindows = Preferences.behindWindows
         lanternLight = Preferences.lanternLight
+        cornerPumpkins = Preferences.cornerPumpkins
+        cursorTool = Preferences.cursorTool
         soundEffects = Preferences.soundEffects
         SoundEngine.shared.isEnabled = soundEffects
         snowfallHeld = !Preferences.welcomed
@@ -186,8 +193,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, SPUSta
         snowOnWindowsItem = add("Leaves on Windows", #selector(toggleSnowOnWindows), to: menu)
         clearItem = add("Clear Leaves", #selector(clearSnow), to: menu)
         menu.addItem(.separator())
+        menu.addItem(.sectionHeader(title: "Cursor Tool"))
+        for tool in CursorTool.allCases {
+            let tItem = add(tool.title, #selector(selectCursorTool(_:)), to: menu)
+            tItem.tag = tool.rawValue
+            toolItems[tool] = tItem
+        }
+        menu.addItem(.separator())
+        cornerPumpkinsItem = add("Corner Jack-o'-Lanterns", #selector(toggleCornerPumpkins), to: menu)
         lanternItem = add("Lantern Light", #selector(toggleLanternLight), to: menu)
         soundItem = add("Sound Effects", #selector(toggleSoundEffects), to: menu)
+        trophiesItem = add("🏆 Trophies & Golden Leaves…", #selector(openTrophiesWindow), to: menu)
         menu.addItem(.separator())
         behindWindowsItem = add("Behind Windows", #selector(toggleBehindWindows), to: menu)
         screenshotsItem = add("Show in Screenshots", #selector(toggleScreenshots), to: menu)
@@ -216,8 +232,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, SPUSta
         snowOnWindowsItem.state = snowOnWindows ? .on : .off
         snowOnWindowsItem.isEnabled = !behindWindows
         clearItem.isEnabled = screens.contains { $0.simulation.hasSnow || $0.simulation.spriteCount > 0 }
+        for (tool, item) in toolItems {
+            item.state = (tool == cursorTool) ? .on : .off
+        }
+        cornerPumpkinsItem.state = cornerPumpkins ? .on : .off
         lanternItem.state = lanternLight ? .on : .off
         soundItem.state = soundEffects ? .on : .off
+        let ach = AchievementsManager.shared
+        trophiesItem.title = "🏆 Trophies (\(ach.unlockedCount)/\(ach.totalCount)) · ✨ \(ach.goldenLeavesCollected) Gold…"
         behindWindowsItem.state = behindWindows ? .on : .off
         screenshotsItem.state = Preferences.showInScreenshots ? .on : .off
         loginItem.state = SMAppService.mainApp.status == .enabled ? .on : .off
@@ -257,6 +279,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, SPUSta
     @objc private func toggleLanternLight() {
         lanternLight.toggle()
         Preferences.lanternLight = lanternLight
+    }
+
+    @objc private func toggleCornerPumpkins() {
+        cornerPumpkins.toggle()
+        Preferences.cornerPumpkins = cornerPumpkins
+    }
+
+    @objc private func selectCursorTool(_ sender: NSMenuItem) {
+        guard let tool = CursorTool(rawValue: sender.tag) else { return }
+        cursorTool = tool
+        Preferences.cursorTool = tool
+    }
+
+    @objc private func openTrophiesWindow() {
+        AchievementsManager.shared.showAchievementsWindow()
     }
 
     @objc private func toggleSoundEffects() {
