@@ -1,0 +1,562 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Spookhush · It's haunted on your desktop</title>
+<meta name="description" content="Spookhush is a tiny Halloween app for macOS and Windows. Autumn leaves, glowing embers and mini-pumpkins drift over your desktop, settle on your windows and rustle under your cursor's lantern.">
+<meta property="og:title" content="Spookhush">
+<meta property="og:description" content="It's haunted on your desktop. Autumn leaves, glowing embers and mini-pumpkins settle on your windows, slide off when you drag them and part under your lantern.">
+<meta name="theme-color" content="#140b18">
+<link rel="icon" type="image/png" href="/assets/icon-64.png">
+<link rel="apple-touch-icon" href="/assets/apple-touch-icon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Alegreya+Sans:ital,wght@0,400;0,500;0,700;1,400&family=Big+Shoulders+Display:wght@300;600&display=swap" rel="stylesheet">
+<style>
+:root {
+  --night: oklch(0.145 0.028 315);
+  --night-raised: oklch(0.195 0.032 315);
+  --ink: oklch(0.94 0.04 70);
+  --accent: oklch(0.72 0.19 48);
+  --muted: oklch(0.81 0.035 65);
+  --faint: oklch(0.70 0.03 60);
+  --rule: oklch(0.85 0.08 55 / 0.15);
+  --gutter: clamp(20px, 6vw, 88px);
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  color-scheme: dark;
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--night);
+  color: var(--ink);
+  font-family: 'Alegreya Sans', 'Avenir Next', 'Segoe UI', sans-serif;
+  font-size: 19px;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+}
+
+a:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; }
+
+.display {
+  font-family: 'Big Shoulders Display', 'Arial Narrow', sans-serif;
+  font-weight: 300;
+  line-height: 0.9;
+  letter-spacing: 0.005em;
+  text-transform: uppercase;
+}
+.kicker {
+  margin: 0 0 22px;
+  color: var(--accent);
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+}
+
+canvas.snow, .night-light, .vignette {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+canvas.snow { z-index: 3; }
+body.snow-behind canvas.snow { z-index: 1; }
+.vignette { background: radial-gradient(ellipse 85% 78% at 55% 42%, transparent 48%, oklch(0.07 0.025 315 / 0.72)); }
+.grain {
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+  opacity: 0.05;
+  pointer-events: none;
+}
+
+.lamp {
+  position: absolute;
+  top: 0;
+  z-index: 1;
+  height: 64px;
+  pointer-events: none;
+}
+.lamp-right { left: 72%; right: 0; }
+.lamp-left { left: 0; width: 30%; }
+.lamp-arm {
+  position: absolute;
+  top: 30px;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: oklch(0.28 0.03 315);
+}
+.lamp-head {
+  position: absolute;
+  top: 18px;
+  width: 60px;
+  height: 40px;
+  overflow: visible;
+}
+.lamp-right .lamp-head { left: -30px; }
+.lamp-left .lamp-head { right: -30px; }
+
+.button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 52px;
+  padding: 0 28px;
+  border-radius: 2px;
+  background: var(--accent);
+  color: oklch(0.12 0.02 315);
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-decoration: none;
+  text-transform: uppercase;
+  transition: transform 0.5s var(--ease-out), background-color 0.3s var(--ease-out);
+}
+.button:hover { transform: translateY(-2px); background: oklch(0.78 0.19 55); }
+.button svg { flex: none; width: 15px; height: 15px; margin-right: 12px; fill: currentColor; }
+.button[data-platform="mac"] svg { margin-top: -3px; }
+.button.secondary {
+  background: transparent;
+  color: var(--ink);
+  box-shadow: inset 0 0 0 1px oklch(0.85 0.08 55 / 0.45);
+}
+.button.secondary:hover { background: oklch(0.72 0.19 48 / 0.10); box-shadow: inset 0 0 0 1px var(--accent); }
+.actions { margin-top: 40px; }
+.downloads { display: flex; flex-wrap: wrap; gap: 12px; }
+.meta { margin: 18px 0 0; color: var(--faint); font-size: 16px; }
+@media (max-width: 560px) { .downloads .button { flex: 1 1 100%; } }
+
+/* Street */
+
+.street {
+  position: relative;
+  overflow: hidden;
+  min-height: max(700px, 100svh);
+}
+.nav {
+  position: relative;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 28px var(--gutter);
+}
+.wordmark {
+  color: inherit;
+  font-family: 'Big Shoulders Display', 'Arial Narrow', sans-serif;
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: 0.22em;
+  text-decoration: none;
+  text-transform: uppercase;
+}
+.nav-links { display: flex; gap: 28px; font-size: 16px; font-weight: 500; }
+.nav-links a { color: inherit; text-decoration: none; }
+.nav-links a:hover { color: var(--accent); }
+.street-copy {
+  position: relative;
+  z-index: 2;
+  max-width: 800px;
+  padding: clamp(24px, 5vh, 90px) var(--gutter) 150px;
+}
+.street h1 { margin: 0; font-size: clamp(56px, min(10vw, 13vh), 150px); }
+.street h1 span { display: block; }
+.lede {
+  max-width: 42ch;
+  margin: 34px 0 0;
+  color: var(--muted);
+  font-size: 20px;
+  text-wrap: pretty;
+}
+.hint {
+  position: absolute;
+  right: var(--gutter);
+  bottom: 104px;
+  z-index: 2;
+  margin: 0;
+  color: var(--accent);
+  font-size: 17px;
+  font-style: italic;
+}
+@media (hover: none) { .hint { display: none; } }
+@media (max-width: 720px) { .lamp-right { top: 70px; left: 74%; } }
+
+/* Windows */
+
+.windows {
+  position: relative;
+  overflow: hidden;
+  padding: 190px var(--gutter) 190px;
+}
+.windows-inner {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 72px 80px;
+  max-width: 1240px;
+  margin: 0 auto;
+}
+.window {
+  position: relative;
+  flex: 1 1 540px;
+  max-width: 760px;
+  padding: 68px clamp(24px, 5vw, 64px) 58px;
+  border-radius: 18px;
+  background: var(--night-raised);
+  box-shadow: 0 0 0 1px oklch(0.75 0.15 50 / 0.14), 0 40px 80px -30px oklch(0.05 0.02 315 / 0.85);
+}
+.window-dots {
+  position: absolute;
+  top: 18px;
+  left: 20px;
+  display: flex;
+  gap: 8px;
+}
+.window-dots span {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: oklch(0.36 0.04 315);
+}
+.window h2 { margin: 0; font-size: clamp(48px, 6vw, 96px); }
+.window .body {
+  max-width: 36em;
+  margin: 28px 0 0;
+  color: var(--muted);
+  font-size: 20px;
+  text-wrap: pretty;
+}
+
+.menu-demo {
+  display: flex;
+  flex: 0 1 300px;
+  flex-direction: column;
+  gap: 20px;
+  margin-top: 90px;
+}
+.menu {
+  padding: 6px;
+  border-radius: 12px;
+  background: oklch(0.22 0.032 315);
+  box-shadow: 0 0 0 1px oklch(0.78 0.14 50 / 0.16), 0 28px 56px -20px oklch(0.05 0.02 315 / 0.9);
+  color: oklch(0.93 0.025 70);
+  font-family: -apple-system, BlinkMacSystemFont, 'Helvetica Neue', sans-serif;
+  font-size: 14px;
+  line-height: 1;
+}
+.menu-head {
+  padding: 7px 12px 5px;
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 600;
+}
+.menu-item {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  height: 26px;
+  margin: 0;
+  padding: 0 12px 0 30px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: default;
+}
+.menu-item:hover, .menu-item:focus-visible { background: oklch(0.35 0.08 45); outline: none; }
+.menu-item[aria-disabled="true"] { color: oklch(0.52 0.02 315); }
+.menu-item[aria-disabled="true"]:hover { background: none; }
+.menu-item[aria-checked="true"]::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 13px;
+  width: 9px;
+  height: 5px;
+  border-bottom: 1.6px solid var(--accent);
+  border-left: 1.6px solid var(--accent);
+  transform: translateY(-70%) rotate(-45deg);
+}
+.menu-key { color: oklch(0.66 0.025 65); }
+.menu-sep {
+  height: 1px;
+  margin: 5px 12px;
+  background: oklch(0.85 0.06 55 / 0.12);
+}
+.caption {
+  margin: 0;
+  padding-left: 4px;
+  color: var(--faint);
+  font-size: 17px;
+  line-height: 1.5;
+}
+
+/* Screenshot preview */
+
+.capture {
+  position: fixed;
+  right: 20px;
+  bottom: 20px;
+  z-index: 20;
+  overflow: hidden;
+  border-radius: 8px;
+  background: var(--night);
+  box-shadow: 0 0 0 1px oklch(0.75 0.15 50 / 0.3), 0 18px 40px -12px oklch(0.05 0.02 315 / 0.9);
+  pointer-events: none;
+}
+.capture-stage { position: relative; transform-origin: 0 0; }
+@media (prefers-reduced-motion: no-preference) {
+  .capture { animation: capture-in 0.55s var(--ease-out) both; }
+  .capture.leaving { animation: capture-out 0.4s cubic-bezier(0.5, 0, 0.75, 0) forwards; }
+}
+@keyframes capture-in { from { transform: translateX(calc(100% + 40px)); } }
+@keyframes capture-out { to { transform: translateX(calc(100% + 40px)); } }
+
+/* Notes */
+
+.notes { padding: clamp(72px, 10vw, 150px) var(--gutter); }
+.notes-inner {
+  display: grid;
+  grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
+  gap: 40px 80px;
+  max-width: 1240px;
+  margin: 0 auto;
+}
+.notes h2 {
+  position: sticky;
+  top: 48px;
+  align-self: start;
+  margin: 0;
+  font-size: clamp(56px, 6.5vw, 104px);
+}
+.traits { margin: 0; }
+.trait {
+  display: grid;
+  grid-template-columns: minmax(110px, 170px) minmax(0, 1fr);
+  gap: 8px 32px;
+  padding: 30px 0;
+  border-top: 1px solid var(--rule);
+}
+.trait:last-child { border-bottom: 1px solid var(--rule); }
+.trait dt {
+  font-family: 'Big Shoulders Display', 'Arial Narrow', sans-serif;
+  font-size: 28px;
+  font-weight: 600;
+  line-height: 1.1;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+.trait dd {
+  max-width: 46ch;
+  margin: 0;
+  color: var(--muted);
+  text-wrap: pretty;
+}
+@media (max-width: 860px) {
+  .notes-inner { grid-template-columns: minmax(0, 1fr); }
+  .notes h2 { position: static; }
+}
+@media (max-width: 560px) {
+  .trait { grid-template-columns: minmax(0, 1fr); }
+}
+
+/* End */
+
+.end { padding: clamp(24px, 4vw, 60px) var(--gutter) 40px; }
+.end-inner { max-width: 1240px; margin: 0 auto; }
+.end h2 { margin: 0; font-size: clamp(72px, 14vw, 200px); }
+.colophon {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 12px 24px;
+  margin-top: clamp(80px, 10vw, 140px);
+  padding-top: 24px;
+  border-top: 1px solid var(--rule);
+  color: var(--faint);
+  font-size: 16px;
+}
+.colophon a { color: var(--ink); text-decoration: underline; text-underline-offset: 3px; }
+.colophon a:hover { color: var(--accent); }
+
+@media (prefers-reduced-motion: no-preference) {
+  .reveal {
+    opacity: 0;
+    transform: translateY(16px);
+    animation: reveal 1.2s var(--ease-out) forwards;
+  }
+  .reveal-2 { animation-delay: 0.12s; }
+  .reveal-3 { animation-delay: 0.3s; }
+  .reveal-4 { animation-delay: 0.45s; }
+}
+@keyframes reveal { to { opacity: 1; transform: none; } }
+</style>
+</head>
+<body>
+
+<header class="street" data-scene="night" data-ground="72">
+  <canvas class="night-light" aria-hidden="true"></canvas>
+  <div class="vignette" aria-hidden="true"></div>
+  <div class="lamp lamp-right" aria-hidden="true">
+    <span class="lamp-arm"></span>
+    <svg class="lamp-head" viewBox="0 0 60 40">
+      <path d="M16 26 L44 26 L37 14 L23 14 Z" fill="#281a24"/>
+      <path d="M30 12 L30 14" stroke="#3d2836" stroke-width="2"/>
+      <ellipse cx="30" cy="26.5" rx="8" ry="2.2" fill="#ffb84d"/>
+    </svg>
+  </div>
+
+  <nav class="nav" aria-label="Main">
+    <a class="wordmark" href="/">🎃 Spookhush</a>
+    <div class="nav-links">
+      <a href="#notes">Features</a>
+      <a href="#download">Download</a>
+      <a href="https://github.com/andre-stana/Spookhush" target="_blank" rel="noopener">GitHub</a>
+    </div>
+  </nav>
+
+  <div class="street-copy">
+    <p class="kicker reveal">Spookhush · Halloween Edition for macOS &amp; Windows</p>
+    <h1 class="display reveal reveal-2"><span>It's haunted</span> <span>on your</span> <span>desktop.</span></h1>
+    <p class="lede reveal reveal-3">Crimson autumn leaves, glowing embers and mini Jack-o'-lanterns drift across your screen, pile up along your windows and crackle under your cursor's lantern.</p>
+    <div class="actions reveal reveal-4">
+      <div class="downloads">
+        <a class="button" href="#download" data-platform="mac"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12.152 6.896c-.948 0-2.415-1.078-3.96-1.04-2.04.027-3.91 1.183-4.961 3.014-2.117 3.675-.546 9.103 1.519 12.09 1.013 1.454 2.208 3.09 3.792 3.039 1.52-.065 2.09-.987 3.935-.987 1.831 0 2.35.987 3.96.948 1.637-.026 2.676-1.48 3.676-2.948 1.156-1.688 1.636-3.325 1.662-3.415-.039-.013-3.182-1.221-3.22-4.857-.026-3.04 2.48-4.494 2.597-4.559-1.429-2.09-3.623-2.324-4.39-2.376-2-.156-3.675 1.09-4.61 1.09zM15.53 3.83c.843-1.012 1.4-2.427 1.245-3.83-1.207.052-2.662.805-3.532 1.818-.78.896-1.454 2.338-1.273 3.714 1.338.104 2.715-.688 3.559-1.701"/></svg>Download for macOS</a>
+        <a class="button secondary" href="#download" data-platform="windows"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M0 0h11.4v11.4H0zM12.6 0H24v11.4H12.6zM0 12.6h11.4V24H0zM12.6 12.6H24V24H12.6z"/></svg>Download for Windows</a>
+      </div>
+      <p class="meta">macOS 14 or later · Windows 10 or 11 · Free &amp; Open Source (MIT)</p>
+    </div>
+  </div>
+
+  <p class="hint">Try it: sweep the leaves &amp; hear them rustle.</p>
+  <canvas class="snow" aria-hidden="true"></canvas>
+</header>
+
+<main>
+  <section class="windows" data-scene="night" data-ground="48" aria-labelledby="windows-title">
+    <canvas class="night-light" aria-hidden="true"></canvas>
+    <div class="vignette" aria-hidden="true"></div>
+    <div class="lamp lamp-left" aria-hidden="true">
+      <span class="lamp-arm"></span>
+      <svg class="lamp-head" viewBox="0 0 60 40">
+        <path d="M16 26 L44 26 L37 14 L23 14 Z" fill="#281a24"/>
+        <path d="M30 12 L30 14" stroke="#3d2836" stroke-width="2"/>
+        <ellipse cx="30" cy="26.5" rx="8" ry="2.2" fill="#ffb84d"/>
+      </svg>
+    </div>
+
+    <div class="windows-inner">
+      <article class="window" data-ledge="18">
+        <div class="window-dots" aria-hidden="true"><span></span><span></span><span></span></div>
+        <p class="kicker">On your windows</p>
+        <h2 id="windows-title" class="display">Leaves, embers &amp; glowing pumpkins.</h2>
+        <p class="body">Autumn leaves and smoldering embers gather on the tops of your windows and the Dock, with flickering Jack-o'-lanterns peeking out of deeper piles. Drag a window and its leaves slide off; close it and mini-pumpkins drop and burst into sparks below.</p>
+      </article>
+
+      <aside class="menu-demo">
+        <div class="menu" data-ledge="12" data-snow-menu role="menu" aria-label="Spookhush settings">
+          <div class="menu-head" role="presentation">Autumn Fall</div>
+          <button class="menu-item" type="button" role="menuitemradio" data-snowfall="off" aria-checked="false">Off</button>
+          <button class="menu-item" type="button" role="menuitemradio" data-snowfall="light" aria-checked="false">Light</button>
+          <button class="menu-item" type="button" role="menuitemradio" data-snowfall="steady" aria-checked="true">Steady</button>
+          <button class="menu-item" type="button" role="menuitemradio" data-snowfall="heavy" aria-checked="false">Heavy</button>
+          <button class="menu-item" type="button" role="menuitemradio" data-snowfall="variable" aria-checked="false">Variable</button>
+          <div class="menu-sep" role="separator"></div>
+          <button class="menu-item" type="button" role="menuitemcheckbox" data-toggle="accumulate" aria-checked="true">Accumulate</button>
+          <button class="menu-item" type="button" role="menuitemcheckbox" data-toggle="melt" aria-checked="true">Fade Leaves</button>
+          <button class="menu-item" type="button" role="menuitemcheckbox" data-toggle="windows" aria-checked="true">Leaves on Windows</button>
+          <button class="menu-item" type="button" role="menuitem" data-action="clear">Clear Leaves</button>
+          <div class="menu-sep" role="separator"></div>
+          <button class="menu-item" type="button" role="menuitemcheckbox" data-toggle="lantern" aria-checked="true">Lantern Light</button>
+          <button class="menu-item" type="button" role="menuitemcheckbox" data-toggle="sound" aria-checked="true">Sound Effects</button>
+          <div class="menu-sep" role="separator"></div>
+          <button class="menu-item" type="button" role="menuitemcheckbox" data-toggle="behind" aria-checked="false">Behind Windows</button>
+          <button class="menu-item" type="button" role="menuitemcheckbox" data-toggle="screenshots" aria-checked="false">Show in Screenshots</button>
+          <button class="menu-item" type="button" role="menuitemcheckbox" data-toggle="login" aria-checked="false">Open at Login</button>
+          <div class="menu-sep" role="separator"></div>
+          <button class="menu-item" type="button" role="menuitem" data-action="quit"><span>Quit</span><span class="menu-key">⌘Q</span></button>
+        </div>
+        <p class="caption">Interactive menu: try <b>Heavy</b>, click <b>Clear Leaves</b> to summon an eerie Halloween wind gust, or toggle <b>Lantern Light</b> &amp; <b>Sound Effects</b>.</p>
+      </aside>
+    </div>
+    <canvas class="snow" aria-hidden="true"></canvas>
+  </section>
+
+  <section class="notes" id="notes" aria-labelledby="notes-title">
+    <div class="notes-inner">
+      <h2 id="notes-title" class="display">What the night does</h2>
+      <dl class="traits">
+        <div class="trait">
+          <dt>Drifts</dt>
+          <dd>Crimson, burnt-orange and golden autumn leaves tumble in 3D alongside glowing embers, violet sparks and carved mini Jack-o'-lanterns.</dd>
+        </div>
+        <div class="trait">
+          <dt>Piles</dt>
+          <dd>Leaves and smoldering ash pile up along the bottom of your screen, on top of your windows and on the Dock, with glowing pumpkins nestled inside deeper drifts.</dd>
+        </div>
+        <div class="trait">
+          <dt>Glows</dt>
+          <dd>Your cursor carries a warm flickering Halloween lantern that illuminates falling leaves and leaf piles as it passes near them.</dd>
+        </div>
+        <div class="trait">
+          <dt>Crackles</dt>
+          <dd>Zero-bloat procedural audio synthesizes dry leaf rustles and ember crackles when you sweep a drift, hollow pumpkin thuds when a window drops its pile, and an eerie wind howl when you clear the screen.</dd>
+        </div>
+        <div class="trait">
+          <dt>Hides</dt>
+          <dd>Screenshots and screen sharing show your clean desktop without the haunt, unless you turn on Show in Screenshots.</dd>
+        </div>
+        <div class="trait">
+          <dt>Rests</dt>
+          <dd>Lightweight native Metal &amp; Direct3D 11 rendering. It pauses automatically while your screen sleeps, locks or is covered.</dd>
+        </div>
+      </dl>
+    </div>
+  </section>
+</main>
+
+<footer class="end" id="download">
+  <div class="end-inner">
+    <h2 class="display">Enter the night.</h2>
+    <div class="actions">
+      <div class="downloads">
+        <a class="button" href="#download" data-platform="mac"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12.152 6.896c-.948 0-2.415-1.078-3.96-1.04-2.04.027-3.91 1.183-4.961 3.014-2.117 3.675-.546 9.103 1.519 12.09 1.013 1.454 2.208 3.09 3.792 3.039 1.52-.065 2.09-.987 3.935-.987 1.831 0 2.35.987 3.96.948 1.637-.026 2.676-1.48 3.676-2.948 1.156-1.688 1.636-3.325 1.662-3.415-.039-.013-3.182-1.221-3.22-4.857-.026-3.04 2.48-4.494 2.597-4.559-1.429-2.09-3.623-2.324-4.39-2.376-2-.156-3.675 1.09-4.61 1.09zM15.53 3.83c.843-1.012 1.4-2.427 1.245-3.83-1.207.052-2.662.805-3.532 1.818-.78.896-1.454 2.338-1.273 3.714 1.338.104 2.715-.688 3.559-1.701"/></svg>Download for macOS</a>
+        <a class="button secondary" href="#download" data-platform="windows"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M0 0h11.4v11.4H0zM12.6 0H24v11.4H12.6zM0 12.6h11.4V24H0zM12.6 12.6H24V24H12.6z"/></svg>Download for Windows</a>
+      </div>
+      <p class="meta">macOS 14 or later · Windows 10 or 11</p>
+    </div>
+    <div class="colophon">
+      <span><b>Spookhush</b> · Open-source Halloween adaptation by <a href="https://github.com/andre-stana/Spookhush" target="_blank" rel="noopener">andre-stana</a>, based on <a href="https://github.com/mbezruchko/Snowhush" target="_blank" rel="noopener">Snowhush by Mykhailo Bezruchko</a> (MIT License)</span>
+      <span><a href="https://github.com/andre-stana/Spookhush" target="_blank" rel="noopener">Spookhush on GitHub</a> · <a href="https://github.com/mbezruchko/Snowhush" target="_blank" rel="noopener">Original Snowhush</a></span>
+    </div>
+  </div>
+</footer>
+
+<div class="grain" aria-hidden="true"></div>
+<script>
+  if (/Windows/.test(navigator.userAgentData?.platform ?? navigator.userAgent)) {
+    for (const downloads of document.querySelectorAll('.downloads')) {
+      const [mac, windows] = ['mac', 'windows'].map(platform => downloads.querySelector(`[data-platform="${platform}"]`));
+      downloads.prepend(windows);
+      windows.classList.remove('secondary');
+      mac.classList.add('secondary');
+    }
+  }
+</script>
+<script src="snow.js"></script>
+</body>
+</html>

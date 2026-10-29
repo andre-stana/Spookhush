@@ -1,0 +1,7 @@
+.build/
+build/
+dist/
+.DS_Store
+.playwright-mcp/
+windows/target/
+core/target/
